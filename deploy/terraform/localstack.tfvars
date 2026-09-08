@@ -1,0 +1,2 @@
+localstack  = true
+environment = "local"
