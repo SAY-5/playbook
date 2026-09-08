@@ -67,6 +67,5 @@ export function runLoop(runner: Runner, start = initialSpec(runner.ws.procedure.
       break;
     }
   }
-  if (rounds.length && round.report.passRate >= 1 && reason === "max rounds reached") reason = "all scenarios pass";
   return { rounds, stopReason: reason };
 }
