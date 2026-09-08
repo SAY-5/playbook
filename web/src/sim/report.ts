@@ -53,9 +53,22 @@ export function compareReports(before: VersionReport, after: VersionReport): Com
   };
 }
 
-export function pct(x: number): string {
-  return `${(x * 100).toFixed(1)}%`;
+/** Python's `f"{x:.1f}"`: round half to even on exact ties, so 56.25 prints as 56.2. */
+function fixed1(v: number): string {
+  const scaled = v * 10;
+  const floor = Math.floor(scaled);
+  const diff = scaled - floor;
+  if (Math.abs(diff - 0.5) < 1e-9) {
+    const even = floor % 2 === 0 ? floor : floor + 1;
+    return (even / 10).toFixed(1);
+  }
+  return v.toFixed(1);
 }
+
+export function pct(x: number): string {
+  return `${fixed1(x * 100)}%`;
+}
+
 
 export interface TableRow {
   metric: string;
