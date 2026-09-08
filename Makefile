@@ -2,6 +2,8 @@ UV ?= uv
 RUNS ?= runs
 TF_DIR := deploy/terraform
 COMPOSE := docker compose -f deploy/docker-compose.yml
+LOCALSTACK_PORT ?= 4566
+export LOCALSTACK_PORT
 
 .PHONY: setup lint test tf-validate demo stack-up stack-down tf-apply-local tf-destroy-local lambda-zip clean
 
@@ -31,10 +33,10 @@ stack-down:
 
 tf-apply-local:
 	terraform -chdir=$(TF_DIR) init -input=false >/dev/null
-	terraform -chdir=$(TF_DIR) apply -input=false -auto-approve -var-file=localstack.tfvars
+	terraform -chdir=$(TF_DIR) apply -input=false -auto-approve -var-file=localstack.tfvars -var localstack_endpoint=http://localhost:$(LOCALSTACK_PORT)
 
 tf-destroy-local:
-	terraform -chdir=$(TF_DIR) destroy -input=false -auto-approve -var-file=localstack.tfvars
+	terraform -chdir=$(TF_DIR) destroy -input=false -auto-approve -var-file=localstack.tfvars -var localstack_endpoint=http://localhost:$(LOCALSTACK_PORT)
 
 lambda-zip:
 	rm -rf build/lambda && mkdir -p build/lambda
