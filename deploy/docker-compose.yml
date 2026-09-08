@@ -1,0 +1,32 @@
+# Local stack for offline development: LocalStack for S3, SQS, DynamoDB, Secrets Manager and
+# Lambda, plus the deterministic model, Jira and Slack fakes.
+services:
+  localstack:
+    image: localstack/localstack:3.8
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,sqs,dynamodb,secretsmanager,lambda,iam,logs,sts
+      DEBUG: "0"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  fakes:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["serve-fakes", "--model-port", "8801", "--jira-port", "8802", "--slack-port", "8803"]
+    ports:
+      - "8801:8801"
+      - "8802:8802"
+      - "8803:8803"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8801/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
