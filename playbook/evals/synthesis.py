@@ -74,7 +74,9 @@ def synthesize_scenario(
             expected[key] = branch.facts[key]
             continue
         witnesses = [
-            s for s in existing if key in s.expected and all(norm(v, s.facts.get(v)) == norm(v, facts.get(v)) for v in vars_)
+            s
+            for s in existing
+            if key in s.expected and all(norm(v, s.facts.get(v)) == norm(v, facts.get(v)) for v in vars_)
         ]
         if vars_ and witnesses:
             expected[key] = witnesses[0].expected[key]
@@ -90,9 +92,7 @@ def synthesize_scenario(
     return Scenario(id=f"syn-{index:02d}-{branch.decision_id}", intake=intake, expected=expected, tags=tags), missing
 
 
-def synthesize(
-    proc: Procedure, scenarios: ScenarioSet, rubric: Rubric, *, only_uncovered: bool = False
-) -> Synthesis:
+def synthesize(proc: Procedure, scenarios: ScenarioSet, rubric: Rubric, *, only_uncovered: bool = False) -> Synthesis:
     """Return the scenario set extended with one scenario per branch (or per uncovered branch)."""
     if not scenarios.scenarios:
         raise ValueError("synthesis needs at least one hand-written scenario as a template")

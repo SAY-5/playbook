@@ -23,6 +23,9 @@ class Scenario:
         facts.update({k: v for k, v in self.expected.items() if k in ("kb_hit",)})
         return facts
 
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "tags": list(self.tags), "intake": dict(self.intake), "expected": dict(self.expected)}
+
     def render(self) -> str:
         kind = self.intake.get("kind", "request")
         lines = [f"New {kind}"]
@@ -55,6 +58,17 @@ class ScenarioSet:
         if len(ids) != len(set(ids)):
             raise ValueError(f"{path}: duplicate scenario ids")
         return cls(procedure_slug=data["procedure"], scenarios=scenarios)
+
+    def save(self, path: Path, header: str = "") -> Path:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        body = yaml.safe_dump(
+            {"procedure": self.procedure_slug, "scenarios": [s.to_dict() for s in self.scenarios]},
+            sort_keys=False,
+            width=120,
+        )
+        head = "".join(f"# {line}\n" for line in header.splitlines()) if header else ""
+        path.write_text(head + body)
+        return path
 
     def get(self, scenario_id: str) -> Scenario:
         for s in self.scenarios:
