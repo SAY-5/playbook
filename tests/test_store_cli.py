@@ -73,7 +73,7 @@ def test_cli_ingest_eval_and_report(settings: Settings, triage_dir: Path, tmp_pa
     assert "pass rate" in r.output and "FAIL triage-01" in r.output
     r = cli.invoke(main, ["improve", str(triage_dir), "--runs-dir", str(runs), "--dry-run"])
     assert r.exit_code == 0 and "[create-ticket]" in r.output
-    r = cli.invoke(main, ["improve", str(triage_dir), "--runs-dir", str(runs)])
+    r = cli.invoke(main, ["improve", str(triage_dir), "--runs-dir", str(runs), "--auto-approve"])
     assert r.exit_code == 0 and "created v2" in r.output
     r = cli.invoke(main, ["eval", str(triage_dir), "--runs-dir", str(runs), "--compare", "1"])
     assert r.exit_code == 0 and "| v1" in r.output and "| v2" in r.output

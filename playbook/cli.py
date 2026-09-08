@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import getpass
 import json
+import os
 import signal
 import sys
 import threading
@@ -17,7 +19,8 @@ from playbook.evals.report import VersionReport, compare, format_table
 from playbook.evals.scenarios import ScenarioSet
 from playbook.evals.synthesis import synthesize as synthesize_scenarios
 from playbook.feedback.corrections import derive_corrections
-from playbook.feedback.loop import improve_once, run_loop
+from playbook.feedback.loop import improve_once, propose, run_loop
+from playbook.feedback.review import AUTO_REVIEWER, Proposal, ReviewQueue, format_review
 from playbook.runner import Runner, Workspace
 
 _procedure_arg = click.argument("procedure_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
@@ -36,6 +39,19 @@ _scenarios_opt = click.option(
     default=None,
     help="Scenario set to use instead of the procedure's scenarios.yaml (for example a synthesized set).",
 )
+
+
+_reviewer_opt = click.option(
+    "--as",
+    "reviewer",
+    default=None,
+    envvar="PLAYBOOK_REVIEWER",
+    help="Reviewer name recorded on the decision (default PLAYBOOK_REVIEWER or the login name).",
+)
+
+
+def _reviewer(name: str | None) -> str:
+    return name or os.environ.get("PLAYBOOK_REVIEWER") or getpass.getuser()
 
 
 def _settings(live: bool, runs_dir: Path | None) -> Settings:
@@ -146,10 +162,11 @@ def eval_cmd(
 @main.command()
 @_procedure_arg
 @click.option("--version", "version", type=int, default=None, help="Version to improve (default latest).")
-@click.option("--dry-run", is_flag=True, help="Print the corrections without creating a version.")
+@click.option("--dry-run", is_flag=True, help="Print the corrections without recording proposals.")
+@click.option("--auto-approve", is_flag=True, help=f"Approve every pending proposal as reviewer '{AUTO_REVIEWER}'.")
 @_runs_opt
-def improve(procedure_dir: Path, version: int | None, dry_run: bool, runs_dir: Path | None) -> None:
-    """Turn the failures in a graded version into corrections and create the next prompt version."""
+def improve(procedure_dir: Path, version: int | None, dry_run: bool, auto_approve: bool, runs_dir: Path | None) -> None:
+    """Record the failures in a graded version as proposals and build the next version from the approved ones."""
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
     spec = ws.prompt(version)
@@ -162,26 +179,132 @@ def improve(procedure_dir: Path, version: int | None, dry_run: bool, runs_dir: P
             click.echo(f"  [{c.step_id}] {c.text}  ({c.criterion}; {c.evidence})")
         return
     runner = Runner(settings, ws, log=click.echo)
-    new = improve_once(runner, spec, report)
+    added = propose(runner, spec, report)
+    if added:
+        click.echo(f"recorded {len(added)} new proposal(s) from {spec.label}")
+    new = improve_once(runner, spec, report, reviewer=AUTO_REVIEWER if auto_approve else None)
     if new is None:
-        click.echo("no applicable corrections; prompt unchanged")
+        pending = ReviewQueue(runner.store, runner.procedure.slug).pending(spec.version)
+        if pending:
+            click.echo(f"{len(pending)} proposal(s) pending review; run `playbook review list` then approve or reject")
+            _print_proposals(pending)
+        else:
+            click.echo("no approved corrections to apply; prompt unchanged")
         return
-    click.echo(f"created {new.label} with {len(new.corrections) - len(spec.corrections)} new correction(s):")
+    click.echo(f"created {new.label} with {len(new.corrections) - len(spec.corrections)} approved correction(s):")
     for c in new.corrections:
         if c.version == new.version:
-            click.echo(f"  [{c.step_id}] {c.text}  ({c.criterion}; {c.evidence})")
+            click.echo(f"  {c.proposal_id} [{c.step_id}] {c.text}  ({c.criterion}; {c.evidence})")
+
+
+def _print_proposals(proposals: list[Proposal]) -> None:
+    for p in proposals:
+        click.echo(f"  {p.id} {p.status:<8s} [{p.step_id}] {p.final_text}  ({p.criterion}; {p.evidence})")
+
+
+@main.group()
+def review() -> None:
+    """Approve, edit or reject the corrections proposed for a prompt version."""
+
+
+@review.command(name="list")
+@_procedure_arg
+@click.option("--version", "version", type=int, default=None, help="Source version (default all).")
+@click.option("--all", "show_all", is_flag=True, help="Include decided proposals.")
+@_runs_opt
+def review_list(procedure_dir: Path, version: int | None, show_all: bool, runs_dir: Path | None) -> None:
+    """List proposals with their evidence."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    queue = ReviewQueue(Runner(settings, ws).store, ws.slug)
+    items = queue.all(version) if show_all else queue.pending(version)
+    if not items:
+        click.echo("no proposals" if show_all else "no pending proposals")
+        return
+    _print_proposals(items)
+
+
+def _decide(procedure_dir: Path, runs_dir: Path | None, proposal_id: str, status: str, reviewer: str | None, **kw):
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    queue = ReviewQueue(Runner(settings, ws).store, ws.slug)
+    try:
+        p = queue.decide(proposal_id, status, _reviewer(reviewer), **kw)
+    except (KeyError, ValueError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.echo(f"{p.id} {p.status} by {p.reviewer}: [{p.step_id}] {p.final_text}")
+
+
+@review.command()
+@_procedure_arg
+@click.argument("proposal_id")
+@click.option("--note", default="", help="Reviewer note.")
+@_reviewer_opt
+@_runs_opt
+def approve(procedure_dir: Path, proposal_id: str, note: str, reviewer: str | None, runs_dir: Path | None) -> None:
+    """Approve a proposal as written."""
+    _decide(procedure_dir, runs_dir, proposal_id, "approved", reviewer, note=note)
+
+
+@review.command()
+@_procedure_arg
+@click.argument("proposal_id")
+@click.option("--text", required=True, help="The rule text to apply instead of the proposed one.")
+@click.option("--note", default="", help="Reviewer note.")
+@_reviewer_opt
+@_runs_opt
+def edit(
+    procedure_dir: Path, proposal_id: str, text: str, note: str, reviewer: str | None, runs_dir: Path | None
+) -> None:
+    """Approve a proposal with edited text; the edited text is what enters the prompt."""
+    _decide(procedure_dir, runs_dir, proposal_id, "approved", reviewer, note=note, text=text)
+
+
+@review.command()
+@_procedure_arg
+@click.argument("proposal_id")
+@click.option("--note", default="", help="Why it was rejected.")
+@_reviewer_opt
+@_runs_opt
+def reject(procedure_dir: Path, proposal_id: str, note: str, reviewer: str | None, runs_dir: Path | None) -> None:
+    """Reject a proposal; it never enters a prompt."""
+    _decide(procedure_dir, runs_dir, proposal_id, "rejected", reviewer, note=note)
+
+
+@review.command(name="report")
+@_procedure_arg
+@click.option("--version", "version", type=int, default=None, help="Source version (default every version).")
+@_runs_opt
+def review_report(procedure_dir: Path, version: int | None, runs_dir: Path | None) -> None:
+    """Per-version review report: proposed, approved, edited, rejected, pending and applied."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    queue = ReviewQueue(Runner(settings, ws).store, ws.slug)
+    versions = [version] if version is not None else sorted({p.source_version for p in queue.all()})
+    if not versions:
+        click.echo("no proposals recorded")
+        return
+    for v in versions:
+        click.echo(format_review(queue.report(v)))
 
 
 @main.command()
 @_procedure_arg
 @click.option("--max-rounds", type=int, default=5, show_default=True)
 @click.option("--start-version", type=int, default=None, help="Start from this version (default latest).")
+@click.option(
+    "--review",
+    "require_review",
+    is_flag=True,
+    help=f"Stop when proposals await an expert instead of approving them as '{AUTO_REVIEWER}'.",
+)
 @_live_opt
 @_runs_opt
 def loop(
     procedure_dir: Path,
     max_rounds: int,
     start_version: int | None,
+    require_review: bool,
     live: bool,
     runs_dir: Path | None,
 ) -> None:
@@ -189,7 +312,8 @@ def loop(
     settings = _settings(live, runs_dir)
     ws = _workspace(procedure_dir, settings)
     runner = Runner(settings, ws, log=click.echo)
-    result = run_loop(runner, ws.prompt(start_version), max_rounds=max_rounds)
+    reviewer = None if require_review else AUTO_REVIEWER
+    result = run_loop(runner, ws.prompt(start_version), max_rounds=max_rounds, reviewer=reviewer)
     click.echo("")
     for rd in result.rounds:
         for c in rd.corrections:
@@ -197,6 +321,8 @@ def loop(
     click.echo("")
     click.echo(format_table(result.reports))
     click.echo(f"stopped: {result.stop_reason}")
+    if result.pending:
+        _print_proposals(result.pending)
 
 
 @main.command()
