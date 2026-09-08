@@ -168,12 +168,42 @@ playbook eval PROCEDURE_DIR [--compare N]      run and grade a prompt version, p
 playbook improve PROCEDURE_DIR [--dry-run]     derive corrections from the last report, create vN+1
 playbook loop PROCEDURE_DIR [--max-rounds N]   run, grade, correct and re-run until plateau
 playbook report PROCEDURE_DIR [--inbox]        before/after table from stored reports
+playbook coverage PROCEDURE_DIR [--strict]     decision-branch and rubric coverage of the scenario set
+playbook synthesize PROCEDURE_DIR [--only-uncovered]  one scenario per walkthrough decision branch
 playbook serve-fakes                           serve the offline model, Jira and Slack stand-ins
 ```
 
 Every command accepts `--runs-dir` (or `PLAYBOOK_RUNS_DIR`); `run`, `eval` and `loop` accept
-`--live`. A procedure directory contains `sop.md`, `walkthrough.md`, `rubric.yaml`,
+`--live`; `eval` and `coverage` accept `--scenarios FILE` to use another scenario set, for example
+the synthesized one. A procedure directory contains `sop.md`, `walkthrough.md`, `rubric.yaml`,
 `scenarios.yaml` and optionally `kb.json`; see `procedures/`.
+
+## Scenario coverage and synthesis
+
+`playbook coverage` splits every walkthrough decision point into the branches an expert would
+test (each severity, tier or impact level it names, both sides of a KB match or customer-facing
+condition, and an `otherwise` branch when only some values are named) and reports which scenarios
+cover each one, plus how many scenarios exercise each rubric criterion and on which side. A
+procedure with an uncovered branch or a one-sided criterion is flagged; `--strict` turns that
+into a non-zero exit. Both sample sets cover all of their branches (11 for support triage, 8 for
+incident communications), measured offline:
+
+```
+support-triage coverage: 16 scenarios, 4 branching decisions, 11/11 branches covered (100.0%)
+  d2 [escalate] One exception: Enterprise accounts get bumped one level for sev2 and sev3, ... (walkthrough.md:8)
+    ok  severity=sev2 and tier=enterprise                triage-05, triage-08
+    ok  severity=sev3 and tier=enterprise                triage-09, triage-12
+    ok  otherwise (severity=sev1 and tier=pro)           triage-01, triage-02, triage-03, triage-04 +8
+criteria:
+  escalated_when_required                 16 scenario(s) expected=9 not_expected=7
+flagged: none
+```
+
+`playbook synthesize` writes `runs/<procedure>/scenarios.synth.yaml` with one new scenario per
+branch (or per uncovered branch with `--only-uncovered`). Each takes the closest hand-written
+scenario as a template, writes the branch values into the intake, and infers expected outcomes
+from existing scenarios that share the criterion's condition variables. Outcomes nothing can
+vouch for are left out and tagged `needs-expert:<key>` for the expert to confirm.
 
 Environment: `PLAYBOOK_MODEL`, `ANTHROPIC_API_KEY`, `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_TOKEN`,
 `PLAYBOOK_RUN_STORE=local|s3`, `PLAYBOOK_S3_BUCKET`, `PLAYBOOK_DDB_TABLE`, `AWS_ENDPOINT_URL`
@@ -214,3 +244,17 @@ tests/               pytest suite (offline; LocalStack and live tests skip unles
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for schemas and the offline grammar, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for adding procedures and criteria.
+
+## Changelog
+
+### v2.0.0
+
+- Decision-branch and rubric coverage for scenario sets (`playbook coverage`), flagging
+  procedures with uncovered branches or one-sided criteria.
+- Scenario synthesis from walkthrough decision points (`playbook synthesize`), one scenario per
+  branch with inferred or expert-flagged expectations; `eval --scenarios` runs any set.
+
+### v1.0.0
+
+- Ingest with citations, versioned PromptSpec, tool-calling loop over the Messages API with the
+  offline stand-in, rubric grader, feedback loop, run store and the Terraform stack.

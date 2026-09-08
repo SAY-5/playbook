@@ -118,6 +118,27 @@ A run passes when it completed, no forbidden criterion failed, and the weighted 
 pass rate, required-action coverage and forbidden-action count. `compare()` reports the delta and
 the scenarios that newly pass or newly fail between two versions.
 
+## Coverage and synthesis
+
+`playbook.evals.coverage` reads each walkthrough `DecisionPoint` of kind `decision` and extracts
+the variable values it names: `sevN` for `severity`, tier and impact names, and both sides of
+`kb_hit` and `customer_facing` when the sentence mentions the knowledge base or customer-facing.
+The product of those values gives the branches; when a variable has unmentioned values one
+`otherwise` branch is added, covered by any scenario that matches none of the named branches.
+Sentences that name no variable are listed as unconditional. A scenario covers a branch when its
+`facts` (intake fields plus `expected.kb_hit`) take the branch's values.
+
+Criterion coverage counts scenarios per criterion: for `when_expected` criteria the number on
+each side, for `equals_expected` criteria the number per expected value, for `no_pii_in_slack`
+the number of intakes carrying an email or phone number. A missing side or value is a gap.
+
+`playbook.evals.synthesis` turns branches into scenarios. The template is the hand-written
+scenario matching the most branch values (ties by id); the branch values overwrite its intake
+(`kb_hit` is not an intake field, so the template must already have that value). For each
+expected key the rubric references, the value comes from the branch itself or from the first
+existing scenario whose facts agree on the criterion's `cond_vars`; keys without a witness are
+tagged `needs-expert:<key>`. Synthesized ids are `syn-NN-<decision id>`.
+
 ## Feedback loop
 
 Each criterion may carry a `remediation`: the target `step`, a `rule` template, `cond_vars` and an
