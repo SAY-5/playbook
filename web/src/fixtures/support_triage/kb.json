@@ -1,0 +1,7 @@
+[
+  {"id": "KB-101", "title": "SSO login returns HTTP 500 after certificate rotation", "keywords": ["sso", "500", "certificate"], "resolution": "Re-upload the IdP certificate under Settings > SSO."},
+  {"id": "KB-114", "title": "Export job stuck in queued state", "keywords": ["export", "queued", "stuck"], "resolution": "Cancel the job and retry; queue was drained on 2026-08-30."},
+  {"id": "KB-120", "title": "Webhook deliveries retried with 429", "keywords": ["webhook", "429", "rate"], "resolution": "Raise the per-endpoint rate limit from the integrations page."},
+  {"id": "KB-133", "title": "Invoice PDF shows wrong currency symbol", "keywords": ["invoice", "currency", "pdf"], "resolution": "Set the billing locale on the account."},
+  {"id": "KB-140", "title": "Two-factor codes rejected after timezone change", "keywords": ["two-factor", "2fa", "timezone"], "resolution": "Resync device clock; codes are time based."}
+]
