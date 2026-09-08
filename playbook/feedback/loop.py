@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from playbook.agent.prompt import Correction, PromptSpec
 from playbook.evals.report import Comparison, VersionReport, compare
 from playbook.feedback.corrections import derive_corrections
+from playbook.feedback.review import AUTO_REVIEWER, Proposal, ReviewQueue
 from playbook.runner import Runner
 
 
@@ -22,24 +23,41 @@ class Round:
 class LoopResult:
     rounds: list[Round]
     stop_reason: str
+    pending: list[Proposal] = field(default_factory=list)
 
     @property
     def reports(self) -> list[VersionReport]:
         return [r.report for r in self.rounds]
 
 
-def improve_once(runner: Runner, spec: PromptSpec, report: VersionReport) -> PromptSpec | None:
-    """Create the next prompt version from this report's failures, or None if nothing applies."""
+def propose(runner: Runner, spec: PromptSpec, report: VersionReport) -> list[Proposal]:
+    """Derive corrections from this report's failures and record the new ones as proposals."""
     corrections = derive_corrections(report.grades, runner.ws.scenarios(), runner.rubric, spec.version)
-    if not corrections:
+    return ReviewQueue(runner.store, runner.procedure.slug).propose(corrections, spec.version)
+
+
+def improve_once(
+    runner: Runner, spec: PromptSpec, report: VersionReport, *, reviewer: str | None = AUTO_REVIEWER
+) -> PromptSpec | None:
+    """Create the next prompt version from the approved proposals for this version.
+
+    New failures are recorded as proposals first. With a `reviewer`, every pending proposal is
+    approved under that name (the unattended loop uses `auto`); with `reviewer=None` only proposals
+    an expert has already approved are applied. Returns None when nothing approved is left to apply.
+    """
+    propose(runner, spec, report)
+    queue = ReviewQueue(runner.store, runner.procedure.slug)
+    if reviewer is not None:
+        queue.approve_pending(spec.version, reviewer)
+    approved = queue.approved(spec.version)
+    if not approved:
         return None
-    new = spec.with_corrections(
-        corrections,
-        notes=f"{len(corrections)} correction(s) from v{spec.version} failures (pass rate {report.pass_rate:.0%})",
-    )
+    notes = f"{len(approved)} approved correction(s) from v{spec.version} failures (pass rate {report.pass_rate:.0%})"
+    new = spec.with_corrections([p.to_correction() for p in approved], notes=notes)
     if len(new.corrections) == len(spec.corrections):
         return None
     new.save(runner.ws.prompts_dir)
+    queue.mark_applied(approved, new.version)
     return new
 
 
@@ -49,19 +67,26 @@ def run_loop(
     *,
     max_rounds: int = 5,
     min_delta: float = 0.0,
+    reviewer: str | None = AUTO_REVIEWER,
 ) -> LoopResult:
+    """Iterate versions. With `reviewer=None` the loop stops as soon as proposals await an expert."""
     runner.reset_fakes()
     runner.log(f"running {start.label}")
     spec = start
     report = runner.run_version(spec)
     rounds = [Round(spec=spec, report=report)]
     reason = "max rounds reached"
+    queue = ReviewQueue(runner.store, runner.procedure.slug)
     for _ in range(max_rounds):
         if report.pass_rate >= 1.0:
             reason = "all scenarios pass"
             break
-        new = improve_once(runner, spec, report)
+        new = improve_once(runner, spec, report, reviewer=reviewer)
         if new is None:
+            pending = queue.pending(spec.version)
+            if pending:
+                reason = f"{len(pending)} proposal(s) from {spec.label} awaiting review"
+                return LoopResult(rounds=rounds, stop_reason=reason, pending=pending)
             reason = "no applicable corrections for the remaining failures"
             break
         added = [c for c in new.corrections if c.version == new.version]
