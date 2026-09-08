@@ -25,7 +25,15 @@ def test_versioning_appends_corrections_under_the_step_and_dedups(triage_dir: Pa
     rendered = v2.render(proc)
     step_block = rendered.split("### Step 2:")[1].split("### Step 3:")[0]
     assert 'Corrections:\n- (v2) When severity is sev1, set priority to "Highest".' in step_block
-    v3 = v2.with_corrections([fix, Correction("escalate", "When tier is enterprise, post to #support-escalations mentioning the issue key.", "esc", 2)], notes="again")
+    v3 = v2.with_corrections(
+        [
+            fix,
+            Correction(
+                "escalate", "When tier is enterprise, post to #support-escalations mentioning the issue key.", "esc", 2
+            ),
+        ],
+        notes="again",
+    )
     assert len(v3.corrections) == 2
     assert [c.version for c in v3.corrections] == [2, 3]
     assert v1.corrections == []

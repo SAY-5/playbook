@@ -30,7 +30,10 @@ def test_model_fake_speaks_the_messages_api(fakes):
         messages=[
             {"role": "user", "content": "New support request\nTitle: Export stuck\nSeverity: sev2"},
             {"role": "assistant", "content": [b.model_dump() for b in msg.content]},
-            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": '{"matches": []}'}]},
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": '{"matches": []}'}],
+            },
         ],
     )
     second = next(b for b in follow.content if b.type == "tool_use")
@@ -86,10 +89,16 @@ def test_jira_and_slack_fakes_record_evidence(fakes):
     jira, slack = fakes["jira"].url, fakes["slack"].url
     httpx.delete(jira + "/_inbox")
     httpx.delete(slack + "/_inbox")
-    r = httpx.post(jira + "/rest/api/3/issue", json={"fields": {"project": {"key": "SUP"}, "summary": "x", "priority": {"name": "High"}}})
+    r = httpx.post(
+        jira + "/rest/api/3/issue",
+        json={"fields": {"project": {"key": "SUP"}, "summary": "x", "priority": {"name": "High"}}},
+    )
     key = r.json()["key"]
     assert r.status_code == 201 and key.startswith("SUP-")
-    assert httpx.post(jira + f"/rest/api/3/issue/{key}/transitions", json={"transition": {"name": "Triaged"}}).status_code == 204
+    assert (
+        httpx.post(jira + f"/rest/api/3/issue/{key}/transitions", json={"transition": {"name": "Triaged"}}).status_code
+        == 204
+    )
     assert httpx.post(jira + "/rest/api/3/issue/SUP-999/comment", json={"body": "hi"}).status_code == 404
     inbox = httpx.get(jira + "/_inbox").json()
     assert inbox["issues"][key]["fields"]["status"]["name"] == "Triaged"
@@ -99,4 +108,6 @@ def test_jira_and_slack_fakes_record_evidence(fakes):
     assert ok["ok"] is True
     bad = httpx.post(slack + "/api/chat.postMessage", json={"channel": "#nope", "text": "hello"}).json()
     assert bad == {"ok": False, "error": "channel_not_found"}
-    assert httpx.get(slack + "/_inbox").json()["messages"] == [{"channel": "#incidents", "text": "hello", "ts": "1700000000.000100"}]
+    assert httpx.get(slack + "/_inbox").json()["messages"] == [
+        {"channel": "#incidents", "text": "hello", "ts": "1700000000.000100"}
+    ]

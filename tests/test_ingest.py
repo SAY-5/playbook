@@ -13,7 +13,11 @@ def test_sop_steps_ids_tools_and_citations(triage_dir: Path):
     assert proc.slug == "support-triage"
     assert [s.id for s in proc.steps] == ["kb-search", "create-ticket", "record-findings", "escalate", "set-state"]
     assert proc.required_tools == [
-        "kb.search", "jira.create_issue", "jira.comment", "slack.post", "jira.transition",
+        "kb.search",
+        "jira.create_issue",
+        "jira.comment",
+        "slack.post",
+        "jira.transition",
     ]
     create = proc.step("create-ticket")
     assert create.citation.source == "sop.md"

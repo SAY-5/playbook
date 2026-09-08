@@ -12,8 +12,16 @@ from playbook.config import Settings
 
 def _trace(version: int, scenario: str) -> RunTrace:
     return RunTrace(
-        run_id=f"r{version}{scenario}", procedure_slug="support-triage", prompt_version=version, scenario_id=scenario,
-        mode="offline", model="fake", system_prompt="s", user_message="u", started_at="t", status="completed",
+        run_id=f"r{version}{scenario}",
+        procedure_slug="support-triage",
+        prompt_version=version,
+        scenario_id=scenario,
+        mode="offline",
+        model="fake",
+        system_prompt="s",
+        user_message="u",
+        started_at="t",
+        status="completed",
     )
 
 
@@ -39,7 +47,10 @@ def test_s3_store_against_localstack():
         ddb.create_table(
             TableName=settings.dynamodb_table,
             KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}, {"AttributeName": "sk", "KeyType": "RANGE"}],
-            AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}, {"AttributeName": "sk", "AttributeType": "S"}],
+            AttributeDefinitions=[
+                {"AttributeName": "pk", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "S"},
+            ],
             BillingMode="PAY_PER_REQUEST",
         )
     store = S3RunStore(settings)

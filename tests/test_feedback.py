@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from playbook.agent.prompt import PromptSpec
+from playbook.agent.prompt import Correction
 from playbook.config import Settings
 from playbook.evals.report import VersionReport, build_report, compare, format_table
 from playbook.feedback.corrections import derive_corrections
@@ -68,16 +68,16 @@ def test_regression_comparison_flags_newly_failing(settings: Settings, triage_di
     v1 = runner.ws.prompt()
     runner.reset_fakes()
     before = runner.run_version(v1)
-    # A bad correction: forbid the KB search step's outcome by transitioning everything to Done.
+    # A bad correction that breaks a scenario which passed in v1 (triage-10: sev3, no KB match).
     bad = v1.with_corrections(
-        [type(v1.corrections[0]) if v1.corrections else __import__("playbook.agent.prompt", fromlist=["Correction"]).Correction("set-state", 'When severity is sev3, transition to "Done".', "bad", 1)],
-        notes="regression",
+        [Correction("set-state", 'When severity is sev3, transition to "Done".', "bad", 1)], notes="regression"
     )
     runner.reset_fakes()
     after = runner.run_version(bad)
     cmp_ = compare(before, after)
     assert cmp_.regressed
-    assert "triage-10" in cmp_.newly_failing and "triage-11" in cmp_.newly_failing
+    assert cmp_.newly_failing == ["triage-10"]
+    assert cmp_.pass_rate_delta < 0
     assert cmp_.criterion_deltas["never_done"] < 0
     assert cmp_.criterion_deltas["kb_searched"] == 0
     reloaded = VersionReport.load(runner.ws.reports_dir, after.prompt_version)

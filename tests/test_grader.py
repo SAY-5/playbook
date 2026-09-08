@@ -8,8 +8,16 @@ from playbook.evals.scenarios import ScenarioSet
 
 def _trace(calls: list[tuple[str, dict, dict | None]], status: str = "completed") -> RunTrace:
     trace = RunTrace(
-        run_id="r1", procedure_slug="support-triage", prompt_version=1, scenario_id="triage-01",
-        mode="offline", model="fake", system_prompt="", user_message="", started_at="", status=status,
+        run_id="r1",
+        procedure_slug="support-triage",
+        prompt_version=1,
+        scenario_id="triage-01",
+        mode="offline",
+        model="fake",
+        system_prompt="",
+        user_message="",
+        started_at="",
+        status=status,
         final_text="Procedure complete. Ticket SUP-101.",
     )
     for i, (name, args, result) in enumerate(calls, start=1):
@@ -19,7 +27,11 @@ def _trace(calls: list[tuple[str, dict, dict | None]], status: str = "completed"
 
 GOOD = [
     ("kb.search", {"query": "SSO"}, {"matches": [{"id": "KB-101"}]}),
-    ("jira.create_issue", {"project": "SUP", "summary": "[sev1] SSO login returns 500 after certificate rotation", "priority": "Highest"}, {"issue_key": "SUP-101"}),
+    (
+        "jira.create_issue",
+        {"project": "SUP", "summary": "[sev1] SSO login returns 500 after certificate rotation", "priority": "Highest"},
+        {"issue_key": "SUP-101"},
+    ),
     ("jira.comment", {"issue_key": "SUP-101", "body": "KB-101"}, {"issue_key": "SUP-101"}),
     ("slack.post", {"channel": "#support-escalations", "text": "SUP-101: [sev1] SSO (account ACC-1042)"}, {"ts": "1"}),
     ("slack.post", {"channel": "#oncall-sev1", "text": "SUP-101: [sev1] SSO"}, {"ts": "2"}),
@@ -58,7 +70,11 @@ def test_missing_and_misordered_required_actions(triage_dir: Path):
 
 def test_field_checks_and_slack_evidence(triage_dir: Path):
     wrong_priority = [*GOOD]
-    wrong_priority[1] = ("jira.create_issue", {"project": "SUP", "summary": "SSO login", "priority": "Medium"}, {"issue_key": "SUP-101"})
+    wrong_priority[1] = (
+        "jira.create_issue",
+        {"project": "SUP", "summary": "SSO login", "priority": "Medium"},
+        {"issue_key": "SUP-101"},
+    )
     grade = _grade(triage_dir, wrong_priority)
     prio = _result(grade, "priority_matches_matrix")
     assert not prio.passed and prio.evidence == {"observed": "Medium", "expected": "Highest"}
@@ -76,7 +92,11 @@ def test_field_checks_and_slack_evidence(triage_dir: Path):
 
 def test_forbidden_actions_fail_the_run(triage_dir: Path):
     leak = [*GOOD]
-    leak[3] = ("slack.post", {"channel": "#support-escalations", "text": "SUP-101 contact ops@example.com"}, {"ts": "1"})
+    leak[3] = (
+        "slack.post",
+        {"channel": "#support-escalations", "text": "SUP-101 contact ops@example.com"},
+        {"ts": "1"},
+    )
     grade = _grade(triage_dir, leak)
     pii = _result(grade, "no_pii_in_slack")
     assert not pii.passed and pii.evidence["pii_kind"] == "email"
