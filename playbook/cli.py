@@ -12,7 +12,10 @@ import click
 import httpx
 
 from playbook.config import FAKE_JIRA_PORT, FAKE_MODEL_PORT, FAKE_SLACK_PORT, Settings
+from playbook.evals.coverage import coverage, format_coverage
 from playbook.evals.report import VersionReport, compare, format_table
+from playbook.evals.scenarios import ScenarioSet
+from playbook.evals.synthesis import synthesize as synthesize_scenarios
 from playbook.feedback.corrections import derive_corrections
 from playbook.feedback.loop import improve_once, run_loop
 from playbook.runner import Runner, Workspace
@@ -25,6 +28,13 @@ _runs_opt = click.option(
     default=None,
     envvar="PLAYBOOK_RUNS_DIR",
     help="Where prompts, runs and reports are written (default ./runs).",
+)
+_scenarios_opt = click.option(
+    "--scenarios",
+    "scenarios_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Scenario set to use instead of the procedure's scenarios.yaml (for example a synthesized set).",
 )
 
 
@@ -98,6 +108,7 @@ def run(
 @click.option("--version", "version", type=int, default=None, help="Prompt version (default latest).")
 @click.option("--regrade", is_flag=True, help="Grade stored traces instead of re-running the agent.")
 @click.option("--compare", "compare_to", type=int, default=None, help="Compare with this version.")
+@_scenarios_opt
 @_live_opt
 @_runs_opt
 def eval_cmd(
@@ -105,6 +116,7 @@ def eval_cmd(
     version: int | None,
     regrade: bool,
     compare_to: int | None,
+    scenarios_path: Path | None,
     live: bool,
     runs_dir: Path | None,
 ) -> None:
@@ -117,7 +129,7 @@ def eval_cmd(
         report = runner.regrade_version(spec.version)
     else:
         runner.reset_fakes()
-        report = runner.run_version(spec)
+        report = runner.run_version(spec, ScenarioSet.load(scenarios_path) if scenarios_path else None)
     reports = [report]
     if compare_to is not None:
         before = VersionReport.load(ws.reports_dir, compare_to)
@@ -229,6 +241,50 @@ def _print_inbox(settings: Settings) -> None:
     click.echo(f"Slack inbox: {len(slack['messages'])} messages")
     for m in slack["messages"][:6]:
         click.echo(f"  {m['channel']}: {m['text']}")
+
+
+@main.command(name="coverage")
+@_procedure_arg
+@_scenarios_opt
+@click.option("--strict", is_flag=True, help="Exit non-zero when a branch or criterion is uncovered.")
+@_runs_opt
+def coverage_cmd(procedure_dir: Path, scenarios_path: Path | None, strict: bool, runs_dir: Path | None) -> None:
+    """Report which walkthrough decision branches and rubric criteria the scenario set exercises."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    scenarios = ScenarioSet.load(scenarios_path) if scenarios_path else ws.scenarios()
+    report = coverage(ws.procedure(), scenarios, ws.rubric())
+    click.echo(format_coverage(report))
+    if strict and report.flagged:
+        raise click.ClickException("uncovered branches or criteria; run `playbook synthesize --only-uncovered`")
+
+
+@main.command()
+@_procedure_arg
+@click.option("--only-uncovered", is_flag=True, help="Add scenarios only for branches no scenario covers.")
+@click.option("--out", "out_path", type=click.Path(path_type=Path), default=None, help="Output YAML path.")
+@_runs_opt
+def synthesize(procedure_dir: Path, only_uncovered: bool, out_path: Path | None, runs_dir: Path | None) -> None:
+    """Derive scenarios from the walkthrough decision points, one per branch, and write a scenario set."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    proc, rubric = ws.procedure(), ws.rubric()
+    result = synthesize_scenarios(proc, ws.scenarios(), rubric, only_uncovered=only_uncovered)
+    out = out_path or ws.out_dir / "scenarios.synth.yaml"
+    header = (
+        f"Synthesized from {proc.sources[-1]} decision points: {result.branches_added} scenario(s) added to "
+        f"{len(ws.scenarios().scenarios)} hand-written. Expected values are inferred from scenarios that share "
+        "the rubric's condition variables; needs-expert tags mark the ones to confirm."
+    )
+    result.scenarios.save(out, header)
+    for sc in result.added:
+        note = f"  needs expert: {', '.join(result.needs_expert[sc.id])}" if sc.id in result.needs_expert else ""
+        click.echo(f"  {sc.id:<14s} {' '.join(t for t in sc.tags if '=' in t)}{note}")
+    after = coverage(proc, result.scenarios, rubric)
+    click.echo(
+        f"{result.branches_added} scenario(s) synthesized, {len(result.needs_expert)} need expert confirmation; "
+        f"{after.branches_covered}/{after.branches_total} branches covered; wrote {out}"
+    )
 
 
 @main.command(name="serve-fakes")
