@@ -20,6 +20,7 @@ class Correction:
     criterion: str
     version: int
     evidence: str = ""
+    proposal_id: str = ""
 
 
 @dataclass
@@ -41,7 +42,7 @@ class PromptSpec:
         merged = list(self.corrections)
         for c in new:
             if (c.step_id, c.text) not in seen:
-                merged.append(Correction(c.step_id, c.text, c.criterion, self.version + 1, c.evidence))
+                merged.append(Correction(c.step_id, c.text, c.criterion, self.version + 1, c.evidence, c.proposal_id))
                 seen.add((c.step_id, c.text))
         return PromptSpec(
             procedure_slug=self.procedure_slug,

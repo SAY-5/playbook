@@ -13,10 +13,16 @@ from playbook.config import Settings
 class RunStore(Protocol):
     def save_run(self, trace: RunTrace) -> str: ...
     def list_runs(self, procedure_slug: str, prompt_version: int) -> list[RunTrace]: ...
+    def save_proposal(self, procedure_slug: str, proposal_id: str, data: dict[str, Any]) -> str: ...
+    def list_proposals(self, procedure_slug: str) -> list[dict[str, Any]]: ...
 
 
 def run_key(trace: RunTrace) -> str:
     return f"runs/{trace.procedure_slug}/v{trace.prompt_version}/{trace.scenario_id}.json"
+
+
+def proposal_key(procedure_slug: str, proposal_id: str) -> str:
+    return f"proposals/{procedure_slug}/{proposal_id}.json"
 
 
 class LocalRunStore:
@@ -32,6 +38,16 @@ class LocalRunStore:
     def list_runs(self, procedure_slug: str, prompt_version: int) -> list[RunTrace]:
         folder = self.root / "runs" / procedure_slug / f"v{prompt_version}"
         return [RunTrace.from_dict(json.loads(p.read_text())) for p in sorted(folder.glob("*.json"))]
+
+    def save_proposal(self, procedure_slug: str, proposal_id: str, data: dict[str, Any]) -> str:
+        path = self.root / proposal_key(procedure_slug, proposal_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n")
+        return str(path)
+
+    def list_proposals(self, procedure_slug: str) -> list[dict[str, Any]]:
+        folder = self.root / "proposals" / procedure_slug
+        return [json.loads(p.read_text()) for p in sorted(folder.glob("*.json"))]
 
 
 class S3RunStore:
@@ -80,6 +96,29 @@ class S3RunStore:
             body = self.s3.get_object(Bucket=self.bucket, Key=item["s3_key"])["Body"].read()
             traces.append(RunTrace.from_dict(json.loads(body)))
         return sorted(traces, key=lambda t: t.scenario_id)
+
+    def save_proposal(self, procedure_slug: str, proposal_id: str, data: dict[str, Any]) -> str:
+        key = proposal_key(procedure_slug, proposal_id)
+        self.s3.put_object(Bucket=self.bucket, Key=key, Body=json.dumps(data).encode(), ContentType="application/json")
+        self.ddb.put_item(
+            Item={
+                "pk": procedure_slug,
+                "sk": f"proposal#{proposal_id}",
+                "status": data.get("status", ""),
+                "source_version": data.get("source_version", 0),
+                "s3_key": key,
+            }
+        )
+        return f"s3://{self.bucket}/{key}"
+
+    def list_proposals(self, procedure_slug: str) -> list[dict[str, Any]]:
+        from boto3.dynamodb.conditions import Key
+
+        items = self.ddb.query(
+            KeyConditionExpression=Key("pk").eq(procedure_slug) & Key("sk").begins_with("proposal#")
+        )["Items"]
+        out = [json.loads(self.s3.get_object(Bucket=self.bucket, Key=i["s3_key"])["Body"].read()) for i in items]
+        return sorted(out, key=lambda d: d["id"])
 
 
 def make_store(settings: Settings) -> RunStore:
