@@ -1,0 +1,234 @@
+"""The `playbook` command line."""
+
+from __future__ import annotations
+
+import json
+import signal
+import sys
+import threading
+from pathlib import Path
+
+import click
+import httpx
+
+from playbook.agent.prompt import PromptSpec
+from playbook.config import FAKE_JIRA_PORT, FAKE_MODEL_PORT, FAKE_SLACK_PORT, Settings
+from playbook.evals.report import VersionReport, compare, format_table
+from playbook.feedback.corrections import derive_corrections
+from playbook.feedback.loop import improve_once, run_loop
+from playbook.runner import Runner, Workspace
+
+_procedure_arg = click.argument(
+    "procedure_dir", type=click.Path(exists=True, file_okay=False, path_type=Path)
+)
+_live_opt = click.option("--live", is_flag=True, help="Use the real Anthropic API, Jira and Slack.")
+_runs_opt = click.option(
+    "--runs-dir", type=click.Path(path_type=Path), default=None, envvar="PLAYBOOK_RUNS_DIR",
+    help="Where prompts, runs and reports are written (default ./runs).",
+)
+
+
+def _settings(live: bool, runs_dir: Path | None) -> Settings:
+    settings = Settings.from_env(live=live)
+    if runs_dir is not None:
+        settings = Settings(**{**settings.__dict__, "runs_dir": runs_dir})
+    return settings
+
+
+def _workspace(procedure_dir: Path, settings: Settings) -> Workspace:
+    ws = Workspace(procedure_dir, settings.runs_dir)
+    if not (ws.out_dir / "procedure.json").exists():
+        ws.ingest()
+    return ws
+
+
+@click.group()
+@click.version_option(package_name="playbook")
+def main() -> None:
+    """Expert SOP to deployed tool-calling agent, with rubric evals and a feedback loop."""
+
+
+@main.command()
+@_procedure_arg
+@_runs_opt
+def ingest(procedure_dir: Path, runs_dir: Path | None) -> None:
+    """Parse sop.md and walkthrough.md into a structured procedure with citations."""
+    ws = Workspace(procedure_dir, runs_dir or Path("runs"))
+    proc, path = ws.ingest()
+    click.echo(f"{proc.name} ({proc.slug}): {len(proc.steps)} steps, "
+               f"{len(proc.decision_points)} decision points, {len(proc.forbidden)} prohibitions")
+    for s in proc.steps:
+        click.echo(f"  {s.index}. {s.title} [{s.id}] tool={s.tool} ({s.citation})")
+    for d in proc.decision_points:
+        click.echo(f"  {d.kind:9s} -> {d.step_id or '-':16s} {d.text} ({d.citation})")
+    click.echo(f"wrote {path}")
+
+
+@main.command()
+@_procedure_arg
+@click.option("--version", "version", type=int, default=None, help="Prompt version (default latest).")
+@click.option("--scenario", "scenario_id", default=None, help="Run one scenario id only.")
+@_live_opt
+@_runs_opt
+def run(procedure_dir: Path, version: int | None, scenario_id: str | None, live: bool,
+        runs_dir: Path | None) -> None:
+    """Run the agent on the scenario set (or one scenario) and store the traces."""
+    settings = _settings(live, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    runner = Runner(settings, ws, log=click.echo)
+    spec = ws.prompt(version)
+    scenarios = ws.scenarios()
+    targets = [scenarios.get(scenario_id)] if scenario_id else scenarios.scenarios
+    for sc in targets:
+        trace = runner.run_scenario(spec, sc)
+        click.echo(f"{spec.label} {sc.id}: {trace.status}, {len(trace.tool_calls)} tool calls")
+        for c in trace.tool_calls:
+            click.echo(f"    {c.name} {json.dumps(c.args)[:110]}")
+
+
+@main.command(name="eval")
+@_procedure_arg
+@click.option("--version", "version", type=int, default=None, help="Prompt version (default latest).")
+@click.option("--regrade", is_flag=True, help="Grade stored traces instead of re-running the agent.")
+@click.option("--compare", "compare_to", type=int, default=None, help="Compare with this version.")
+@_live_opt
+@_runs_opt
+def eval_cmd(procedure_dir: Path, version: int | None, regrade: bool, compare_to: int | None,
+             live: bool, runs_dir: Path | None) -> None:
+    """Grade a prompt version against the expert rubric."""
+    settings = _settings(live, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    runner = Runner(settings, ws, log=click.echo)
+    spec = ws.prompt(version)
+    if regrade:
+        report = runner.regrade_version(spec.version)
+    else:
+        runner.reset_fakes()
+        report = runner.run_version(spec)
+    reports = [report]
+    if compare_to is not None:
+        before = VersionReport.load(ws.reports_dir, compare_to)
+        reports.insert(0, before)
+        cmp_ = compare(before, report)
+        click.echo(f"newly passing: {cmp_.newly_passing or '-'}; newly failing: {cmp_.newly_failing or '-'}")
+    click.echo(format_table(reports))
+    for g in report.grades:
+        if not g.passed:
+            failed = ", ".join(f"{r.id} ({r.rationale})" for r in g.failed())
+            click.echo(f"  FAIL {g.scenario_id}: {failed}")
+
+
+@main.command()
+@_procedure_arg
+@click.option("--version", "version", type=int, default=None, help="Version to improve (default latest).")
+@click.option("--dry-run", is_flag=True, help="Print the corrections without creating a version.")
+@_runs_opt
+def improve(procedure_dir: Path, version: int | None, dry_run: bool, runs_dir: Path | None) -> None:
+    """Turn the failures in a graded version into corrections and create the next prompt version."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    spec = ws.prompt(version)
+    report_path = ws.reports_dir / f"{spec.label}.json"
+    if not report_path.exists():
+        raise click.ClickException(f"no report for {spec.label}; run `playbook eval` first")
+    report = VersionReport.load(ws.reports_dir, spec.version)
+    if dry_run:
+        for c in derive_corrections(report.grades, ws.scenarios(), ws.rubric(), spec.version):
+            click.echo(f"  [{c.step_id}] {c.text}  ({c.criterion}; {c.evidence})")
+        return
+    runner = Runner(settings, ws, log=click.echo)
+    new = improve_once(runner, spec, report)
+    if new is None:
+        click.echo("no applicable corrections; prompt unchanged")
+        return
+    click.echo(f"created {new.label} with {len(new.corrections) - len(spec.corrections)} new correction(s):")
+    for c in new.corrections:
+        if c.version == new.version:
+            click.echo(f"  [{c.step_id}] {c.text}  ({c.criterion}; {c.evidence})")
+
+
+@main.command()
+@_procedure_arg
+@click.option("--max-rounds", type=int, default=5, show_default=True)
+@click.option("--start-version", type=int, default=None, help="Start from this version (default latest).")
+@_live_opt
+@_runs_opt
+def loop(procedure_dir: Path, max_rounds: int, start_version: int | None, live: bool,
+         runs_dir: Path | None) -> None:
+    """Run, grade, correct and re-run until the pass rate plateaus. Every version is kept."""
+    settings = _settings(live, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    runner = Runner(settings, ws, log=click.echo)
+    result = run_loop(runner, ws.prompt(start_version), max_rounds=max_rounds)
+    click.echo("")
+    for rd in result.rounds:
+        for c in rd.corrections:
+            click.echo(f"{rd.spec.label} [{c.step_id}] {c.text}  ({c.evidence})")
+    click.echo("")
+    click.echo(format_table(result.reports))
+    click.echo(f"stopped: {result.stop_reason}")
+
+
+@main.command()
+@_procedure_arg
+@click.option("--versions", default=None, help="Comma separated versions (default all).")
+@click.option("--inbox", is_flag=True, help="Also print the fake Jira and Slack inboxes.")
+@_runs_opt
+def report(procedure_dir: Path, versions: str | None, inbox: bool, runs_dir: Path | None) -> None:
+    """Print the before/after table for stored reports."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    if versions:
+        wanted = [int(v) for v in versions.split(",")]
+    else:
+        wanted = sorted(int(p.stem[1:]) for p in ws.reports_dir.glob("v*.json"))
+    if not wanted:
+        raise click.ClickException("no reports found; run `playbook eval` or `playbook loop`")
+    reports = [VersionReport.load(ws.reports_dir, v) for v in wanted]
+    click.echo(format_table(reports))
+    if len(reports) > 1:
+        cmp_ = compare(reports[0], reports[-1])
+        click.echo(f"newly passing: {', '.join(cmp_.newly_passing) or '-'}")
+        click.echo(f"newly failing: {', '.join(cmp_.newly_failing) or '-'}")
+    if inbox:
+        _print_inbox(settings)
+
+
+def _print_inbox(settings: Settings) -> None:
+    try:
+        jira = httpx.get(settings.jira_base_url + "/_inbox", timeout=5).json()
+        slack = httpx.get(settings.slack_base_url + "/_inbox", timeout=5).json()
+    except httpx.HTTPError as exc:
+        click.echo(f"(fakes not reachable: {exc})")
+        return
+    click.echo(f"\nJira inbox: {len(jira['issues'])} issues")
+    for key, issue in list(jira["issues"].items())[:6]:
+        f = issue["fields"]
+        click.echo(f"  {key} [{f['priority']['name']}] {f['summary']} -> {f['status']['name']} "
+                   f"({len(issue.get('comments', []))} comment)")
+    click.echo(f"Slack inbox: {len(slack['messages'])} messages")
+    for m in slack["messages"][:6]:
+        click.echo(f"  {m['channel']}: {m['text']}")
+
+
+@main.command(name="serve-fakes")
+@click.option("--model-port", type=int, default=FAKE_MODEL_PORT, show_default=True)
+@click.option("--jira-port", type=int, default=FAKE_JIRA_PORT, show_default=True)
+@click.option("--slack-port", type=int, default=FAKE_SLACK_PORT, show_default=True)
+def serve_fakes(model_port: int, jira_port: int, slack_port: int) -> None:
+    """Serve the offline Messages API, Jira and Slack stand-ins until interrupted."""
+    from fakes import jira_server, model_server, slack_server
+
+    servers = [model_server.serve(model_port), jira_server.serve(jira_port), slack_server.serve(slack_port)]
+    for name, s in zip(("model", "jira", "slack"), servers, strict=True):
+        click.echo(f"fake {name}: {s.url}")
+    stop = threading.Event()
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    stop.wait()
+    for s in servers:
+        s.stop()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
