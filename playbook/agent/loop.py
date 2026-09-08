@@ -131,9 +131,7 @@ def run_agent(
                 trace.status = "completed"
                 break
 
-            messages.append(
-                {"role": "assistant", "content": [b.model_dump() for b in response.content]}
-            )
+            messages.append({"role": "assistant", "content": [b.model_dump() for b in response.content]})
             results: list[dict[str, Any]] = []
             for block in tool_uses:
                 started = time.perf_counter()

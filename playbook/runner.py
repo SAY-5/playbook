@@ -87,9 +87,7 @@ class Runner:
         self.ws = ws
         self.store = store or make_store(settings)
         self.client = client or make_client(settings)
-        self.judge = judge or (
-            LiveJudge(self.client, settings.model) if settings.live else OfflineJudge()
-        )
+        self.judge = judge or (LiveJudge(self.client, settings.model) if settings.live else OfflineJudge())
         self.procedure = ws.procedure()
         self.rubric = ws.rubric()
         self.executor = ToolExecutor(settings, ws.kb())

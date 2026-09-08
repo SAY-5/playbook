@@ -57,8 +57,7 @@ class PromptSpec:
             by_step.setdefault(c.step_id, []).append(c)
 
         out: list[str] = [
-            f'You are an operations agent executing the procedure "{proc.name}" '
-            f"(prompt {self.label}).",
+            f'You are an operations agent executing the procedure "{proc.name}" (prompt {self.label}).',
             proc.purpose,
             "Work through the steps in order, calling one tool at a time and using only the tools "
             "provided. Read each tool result before the next call. When every step is done, reply "
@@ -92,9 +91,7 @@ class PromptSpec:
             out.append("## Escalation")
             out.extend(f"- {r.text}" for r in proc.escalation_rules)
             out.append("")
-        forbidden = [r.text for r in proc.forbidden] + [
-            d.text for d in proc.decision_points if d.kind == "forbidden"
-        ]
+        forbidden = [r.text for r in proc.forbidden] + [d.text for d in proc.decision_points if d.kind == "forbidden"]
         if forbidden:
             out.append("## Never")
             out.extend(f"- {t}" for t in dict.fromkeys(forbidden))

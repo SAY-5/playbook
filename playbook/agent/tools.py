@@ -129,9 +129,7 @@ class ToolExecutor:
 
     def _slack(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {self.settings.slack_token}"}
-        r = self.http.request(
-            method, self.settings.slack_base_url + path, json=body, headers=headers
-        )
+        r = self.http.request(method, self.settings.slack_base_url + path, json=body, headers=headers)
         r.raise_for_status()
         data = r.json()
         if data.get("ok") is False:
@@ -164,9 +162,7 @@ class ToolExecutor:
             data = self._jira("POST", f"/rest/api/3/issue/{key}/comment", {"body": args["body"]})
             return {"issue_key": key, "comment_id": data.get("id")}
         if name == "slack_post":
-            data = self._slack(
-                "POST", "/api/chat.postMessage", {"channel": args["channel"], "text": args["text"]}
-            )
+            data = self._slack("POST", "/api/chat.postMessage", {"channel": args["channel"], "text": args["text"]})
             return {"channel": args["channel"], "ts": data.get("ts")}
         if name == "slack_lookup_channel":
             data = self._slack("GET", "/api/conversations.list")

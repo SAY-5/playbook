@@ -18,9 +18,46 @@ _STEP_RE = re.compile(
 _TRANSCRIPT_RE = re.compile(r"^\[(?P<ts>\d{1,2}:\d{2}(?::\d{2})?)\]\s+(?P<who>[^:]+):\s+(?P<text>.+)$")
 _SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z])")
 _STOPWORDS = {
-    "the", "a", "an", "to", "of", "in", "and", "or", "is", "it", "for", "on", "with", "that",
-    "this", "as", "be", "if", "when", "then", "we", "i", "you", "so", "at", "by", "from", "do",
-    "not", "never", "always", "also", "one", "them", "they", "its", "their", "our", "get", "gets",
+    "the",
+    "a",
+    "an",
+    "to",
+    "of",
+    "in",
+    "and",
+    "or",
+    "is",
+    "it",
+    "for",
+    "on",
+    "with",
+    "that",
+    "this",
+    "as",
+    "be",
+    "if",
+    "when",
+    "then",
+    "we",
+    "i",
+    "you",
+    "so",
+    "at",
+    "by",
+    "from",
+    "do",
+    "not",
+    "never",
+    "always",
+    "also",
+    "one",
+    "them",
+    "they",
+    "its",
+    "their",
+    "our",
+    "get",
+    "gets",
 }
 _DECISION_HINTS = ("if ", "when ", "unless ", "otherwise", "exception", "must", "always", " is ")
 _FORBIDDEN_HINTS = ("never ", "do not ", "don't ", "must not ")
@@ -104,9 +141,7 @@ def _best_step(proc: Procedure, sentence: str) -> str | None:
     words = _tokens(sentence)
     best, best_score = None, 0
     for step in proc.steps:
-        haystack = f"{step.title} {step.instruction} {step.tool or ''} " + " ".join(
-            r.text for r in step.rules
-        )
+        haystack = f"{step.title} {step.instruction} {step.tool or ''} " + " ".join(r.text for r in step.rules)
         score = len(words & _tokens(haystack))
         if score > best_score:
             best, best_score = step.id, score

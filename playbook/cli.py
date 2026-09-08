@@ -11,19 +11,19 @@ from pathlib import Path
 import click
 import httpx
 
-from playbook.agent.prompt import PromptSpec
 from playbook.config import FAKE_JIRA_PORT, FAKE_MODEL_PORT, FAKE_SLACK_PORT, Settings
 from playbook.evals.report import VersionReport, compare, format_table
 from playbook.feedback.corrections import derive_corrections
 from playbook.feedback.loop import improve_once, run_loop
 from playbook.runner import Runner, Workspace
 
-_procedure_arg = click.argument(
-    "procedure_dir", type=click.Path(exists=True, file_okay=False, path_type=Path)
-)
+_procedure_arg = click.argument("procedure_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
 _live_opt = click.option("--live", is_flag=True, help="Use the real Anthropic API, Jira and Slack.")
 _runs_opt = click.option(
-    "--runs-dir", type=click.Path(path_type=Path), default=None, envvar="PLAYBOOK_RUNS_DIR",
+    "--runs-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    envvar="PLAYBOOK_RUNS_DIR",
     help="Where prompts, runs and reports are written (default ./runs).",
 )
 
@@ -55,8 +55,10 @@ def ingest(procedure_dir: Path, runs_dir: Path | None) -> None:
     """Parse sop.md and walkthrough.md into a structured procedure with citations."""
     ws = Workspace(procedure_dir, runs_dir or Path("runs"))
     proc, path = ws.ingest()
-    click.echo(f"{proc.name} ({proc.slug}): {len(proc.steps)} steps, "
-               f"{len(proc.decision_points)} decision points, {len(proc.forbidden)} prohibitions")
+    click.echo(
+        f"{proc.name} ({proc.slug}): {len(proc.steps)} steps, "
+        f"{len(proc.decision_points)} decision points, {len(proc.forbidden)} prohibitions"
+    )
     for s in proc.steps:
         click.echo(f"  {s.index}. {s.title} [{s.id}] tool={s.tool} ({s.citation})")
     for d in proc.decision_points:
@@ -70,8 +72,13 @@ def ingest(procedure_dir: Path, runs_dir: Path | None) -> None:
 @click.option("--scenario", "scenario_id", default=None, help="Run one scenario id only.")
 @_live_opt
 @_runs_opt
-def run(procedure_dir: Path, version: int | None, scenario_id: str | None, live: bool,
-        runs_dir: Path | None) -> None:
+def run(
+    procedure_dir: Path,
+    version: int | None,
+    scenario_id: str | None,
+    live: bool,
+    runs_dir: Path | None,
+) -> None:
     """Run the agent on the scenario set (or one scenario) and store the traces."""
     settings = _settings(live, runs_dir)
     ws = _workspace(procedure_dir, settings)
@@ -93,8 +100,14 @@ def run(procedure_dir: Path, version: int | None, scenario_id: str | None, live:
 @click.option("--compare", "compare_to", type=int, default=None, help="Compare with this version.")
 @_live_opt
 @_runs_opt
-def eval_cmd(procedure_dir: Path, version: int | None, regrade: bool, compare_to: int | None,
-             live: bool, runs_dir: Path | None) -> None:
+def eval_cmd(
+    procedure_dir: Path,
+    version: int | None,
+    regrade: bool,
+    compare_to: int | None,
+    live: bool,
+    runs_dir: Path | None,
+) -> None:
     """Grade a prompt version against the expert rubric."""
     settings = _settings(live, runs_dir)
     ws = _workspace(procedure_dir, settings)
@@ -153,8 +166,13 @@ def improve(procedure_dir: Path, version: int | None, dry_run: bool, runs_dir: P
 @click.option("--start-version", type=int, default=None, help="Start from this version (default latest).")
 @_live_opt
 @_runs_opt
-def loop(procedure_dir: Path, max_rounds: int, start_version: int | None, live: bool,
-         runs_dir: Path | None) -> None:
+def loop(
+    procedure_dir: Path,
+    max_rounds: int,
+    start_version: int | None,
+    live: bool,
+    runs_dir: Path | None,
+) -> None:
     """Run, grade, correct and re-run until the pass rate plateaus. Every version is kept."""
     settings = _settings(live, runs_dir)
     ws = _workspace(procedure_dir, settings)
@@ -204,8 +222,10 @@ def _print_inbox(settings: Settings) -> None:
     click.echo(f"\nJira inbox: {len(jira['issues'])} issues")
     for key, issue in list(jira["issues"].items())[:6]:
         f = issue["fields"]
-        click.echo(f"  {key} [{f['priority']['name']}] {f['summary']} -> {f['status']['name']} "
-                   f"({len(issue.get('comments', []))} comment)")
+        click.echo(
+            f"  {key} [{f['priority']['name']}] {f['summary']} -> {f['status']['name']} "
+            f"({len(issue.get('comments', []))} comment)"
+        )
     click.echo(f"Slack inbox: {len(slack['messages'])} messages")
     for m in slack["messages"][:6]:
         click.echo(f"  {m['channel']}: {m['text']}")
@@ -219,7 +239,11 @@ def serve_fakes(model_port: int, jira_port: int, slack_port: int) -> None:
     """Serve the offline Messages API, Jira and Slack stand-ins until interrupted."""
     from fakes import jira_server, model_server, slack_server
 
-    servers = [model_server.serve(model_port), jira_server.serve(jira_port), slack_server.serve(slack_port)]
+    servers = [
+        model_server.serve(model_port),
+        jira_server.serve(jira_port),
+        slack_server.serve(slack_port),
+    ]
     for name, s in zip(("model", "jira", "slack"), servers, strict=True):
         click.echo(f"fake {name}: {s.url}")
     stop = threading.Event()

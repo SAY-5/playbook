@@ -46,7 +46,11 @@ class Cond:
         return sum(
             1
             for v in (
-                self.severity, self.tier, self.kb_hit, self.customer_facing, self.impact,
+                self.severity,
+                self.tier,
+                self.kb_hit,
+                self.customer_facing,
+                self.impact,
                 self.report_phrase,
             )
             if v is not None
@@ -133,9 +137,7 @@ def parse_action(text: str, cond: Cond | None, step_id: str | None) -> Directive
         return Directive("set", cond, step_id, field="severity", value=m.group(1).lower())
     m = re.match(r"^post to (#[\w-]+|the service channel)( mentioning the issue key)?", t, re.I)
     if m:
-        return Directive(
-            "post", cond, step_id, channel=m.group(1).lower(), mention_key=bool(m.group(2))
-        )
+        return Directive("post", cond, step_id, channel=m.group(1).lower(), mention_key=bool(m.group(2)))
     m = re.match(r'^transition to "([^"]+)"', t, re.I)
     if m:
         return Directive("transition", cond, step_id, value=m.group(1))
@@ -204,9 +206,7 @@ def parse_intake(text: str) -> dict[str, Any]:
     facts["severity"] = sev if facts["severity_stated"] else None
     facts["tier"] = facts.get("tier", "").lower() or None
     facts["impact"] = facts.get("impact", "").lower() or None
-    facts["customer_facing"] = facts.get("customer-facing", facts.get("customer_facing", "")).lower() in (
-        "yes", "true"
-    )
+    facts["customer_facing"] = facts.get("customer-facing", facts.get("customer_facing", "")).lower() in ("yes", "true")
     return facts
 
 

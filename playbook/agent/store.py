@@ -31,9 +31,7 @@ class LocalRunStore:
 
     def list_runs(self, procedure_slug: str, prompt_version: int) -> list[RunTrace]:
         folder = self.root / "runs" / procedure_slug / f"v{prompt_version}"
-        return [
-            RunTrace.from_dict(json.loads(p.read_text())) for p in sorted(folder.glob("*.json"))
-        ]
+        return [RunTrace.from_dict(json.loads(p.read_text())) for p in sorted(folder.glob("*.json"))]
 
 
 class S3RunStore:
@@ -75,8 +73,7 @@ class S3RunStore:
         from boto3.dynamodb.conditions import Key
 
         items = self.ddb.query(
-            KeyConditionExpression=Key("pk").eq(procedure_slug)
-            & Key("sk").begins_with(f"v{prompt_version}#")
+            KeyConditionExpression=Key("pk").eq(procedure_slug) & Key("sk").begins_with(f"v{prompt_version}#")
         )["Items"]
         traces = []
         for item in items:

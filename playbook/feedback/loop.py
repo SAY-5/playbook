@@ -35,8 +35,7 @@ def improve_once(runner: Runner, spec: PromptSpec, report: VersionReport) -> Pro
         return None
     new = spec.with_corrections(
         corrections,
-        notes=f"{len(corrections)} correction(s) from v{spec.version} failures "
-        f"(pass rate {report.pass_rate:.0%})",
+        notes=f"{len(corrections)} correction(s) from v{spec.version} failures (pass rate {report.pass_rate:.0%})",
     )
     if len(new.corrections) == len(spec.corrections):
         return None

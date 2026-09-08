@@ -93,9 +93,7 @@ def compare(before: VersionReport, after: VersionReport) -> Comparison:
         before=before.prompt_version,
         after=after.prompt_version,
         pass_rate_delta=round(after.pass_rate - before.pass_rate, 4),
-        criterion_deltas={
-            k: round(after.per_criterion.get(k, 0.0) - v, 4) for k, v in before.per_criterion.items()
-        },
+        criterion_deltas={k: round(after.per_criterion.get(k, 0.0) - v, 4) for k, v in before.per_criterion.items()},
         newly_passing=sorted(s for s in a if a[s] and not b.get(s, False)),
         newly_failing=sorted(s for s in a if not a[s] and b.get(s, False)),
     )

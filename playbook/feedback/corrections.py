@@ -51,10 +51,7 @@ def _discriminate(
     for size in range(1, len(cond_vars) + 1):
         for subset in combinations(cond_vars, size):
             mine = tuple(target.facts.get(v) for v in subset)
-            clash = any(
-                tuple(o.facts.get(v) for v in subset) == mine and exp != target_expected
-                for o, exp in others
-            )
+            clash = any(tuple(o.facts.get(v) for v in subset) == mine and exp != target_expected for o, exp in others)
             if not clash:
                 return " and ".join(cond_text(v, target.facts.get(v)) for v in subset)
     return " and ".join(cond_text(v, target.facts.get(v)) for v in cond_vars)
@@ -91,7 +88,16 @@ def derive_corrections(
             if (rem.step, text) in seen:
                 continue
             seen.add((rem.step, text))
-            supporting = [s.id for s, r in failures if _fill(rem.rule, _discriminate(s, r.evidence.get("expected"), others, rem.cond_vars), {p: r.evidence.get(p) for p in placeholders if p in r.evidence}) == text]
+            supporting = [
+                s.id
+                for s, r in failures
+                if _fill(
+                    rem.rule,
+                    _discriminate(s, r.evidence.get("expected"), others, rem.cond_vars),
+                    {p: r.evidence.get(p) for p in placeholders if p in r.evidence},
+                )
+                == text
+            ]
             out.append(
                 Correction(
                     step_id=rem.step,
