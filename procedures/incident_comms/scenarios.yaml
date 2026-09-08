@@ -1,0 +1,35 @@
+# 8 incident reports across the impact matrix and customer-facing flag.
+procedure: incident-communications
+scenarios:
+  - id: inc-01
+    tags: [full-outage, customer-facing]
+    intake: { kind: incident report, service: payments-api, impact: full outage, customer_facing: "yes", title: Payments API returning 503 for all requests, report: Every checkout fails with 503 from payments-api since 14:02 UTC. }
+    expected: { priority: Highest, customer_facing: true, page_ic: true }
+  - id: inc-02
+    tags: [partial-outage, customer-facing]
+    intake: { kind: incident report, service: auth-service, impact: partial outage, customer_facing: "yes", title: Login failing for EU region users, report: Roughly a third of EU logins time out at auth-service. }
+    expected: { priority: High, customer_facing: true, page_ic: false }
+  - id: inc-03
+    tags: [degraded, customer-facing]
+    intake: { kind: incident report, service: export-service, impact: degraded, customer_facing: "yes", title: Exports running slowly, report: Export completion times are five times normal. }
+    expected: { priority: Medium, customer_facing: true, page_ic: false }
+  - id: inc-04
+    tags: [internal]
+    intake: { kind: incident report, service: analytics, impact: internal, customer_facing: "no", title: Internal analytics pipeline delayed, report: The nightly analytics load is four hours late; no customer data affected. }
+    expected: { priority: Low, customer_facing: false, page_ic: false }
+  - id: inc-05
+    tags: [full-outage, customer-facing]
+    intake: { kind: incident report, service: billing, impact: full outage, customer_facing: "yes", title: Billing portal down, report: The billing portal returns a blank page for all customers. }
+    expected: { priority: Highest, customer_facing: true, page_ic: true }
+  - id: inc-06
+    tags: [degraded, internal]
+    intake: { kind: incident report, service: sso, impact: degraded, customer_facing: "no", title: Staff SSO slow, report: Internal staff SSO takes ten seconds to complete; customers unaffected. }
+    expected: { priority: Medium, customer_facing: false, page_ic: false }
+  - id: inc-07
+    tags: [partial-outage, internal]
+    intake: { kind: incident report, service: export-service, impact: partial outage, customer_facing: "no", title: Internal report exports failing, report: Internal finance exports fail; customer exports unaffected. }
+    expected: { priority: High, customer_facing: false, page_ic: false }
+  - id: inc-08
+    tags: [internal]
+    intake: { kind: incident report, service: payments-api, impact: internal, customer_facing: "no", title: Payments sandbox unavailable, report: The internal payments sandbox environment is unreachable. }
+    expected: { priority: Low, customer_facing: false, page_ic: false }
