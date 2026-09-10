@@ -159,6 +159,14 @@ These figures describe the offline stand-in, whose gaps are by construction. A l
 the SOP prose far better than the stand-in, so a live v1 should start higher; the pipeline,
 rubric and corrections are the same in both modes.
 
+### Browser demo
+
+`web/` is a static page that runs this same offline pipeline in the browser: the tool-calling
+loop, the rubric grader and the correction loop, with a transcript viewer, the evaluation grid
+and a replay of the whole arc. It is a port of the offline path rather than a recording, so
+`npm run selfcheck` in that directory reproduces the tables above from 47 assertions. See
+[web/README.md](web/README.md).
+
 ## CLI
 
 ```

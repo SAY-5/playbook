@@ -1101,3 +1101,28 @@ table.grid th.is-focus {
     font-size: 0.66rem;
   }
 }
+
+/* ---------------------------------------------------------------- anchor offsets */
+
+.section,
+.hero,
+.footer {
+  scroll-margin-top: 76px;
+}
+
+@media (max-width: 560px) {
+  .section,
+  .hero,
+  .footer {
+    scroll-margin-top: 118px;
+  }
+
+  .grid__intake {
+    display: none;
+  }
+
+  table.tbl th,
+  table.tbl td {
+    padding: 0.5rem 0.5rem;
+  }
+}

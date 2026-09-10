@@ -56,7 +56,9 @@ export function EvalGrid({ arc }: EvalGridProps) {
             <thead>
               <tr>
                 <th scope="col">scenario</th>
-                <th scope="col">intake</th>
+                <th scope="col" className="grid__intake">
+                  intake
+                </th>
                 {arc.rounds.map((r, i) => (
                   <th key={r.spec.version} scope="col" className={i === focus ? "is-focus" : ""}>
                     v{r.spec.version}
