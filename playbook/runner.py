@@ -57,6 +57,10 @@ class Workspace:
     def bank_path(self) -> Path:
         return self.out_dir / "bank.json"
 
+    @property
+    def artifacts_dir(self) -> Path:
+        return self.out_dir / "artifacts"
+
     def rubric(self) -> Rubric:
         return Rubric.load(self.procedure_dir / "rubric.yaml")
 
@@ -96,6 +100,7 @@ class Runner:
         self.rubric = ws.rubric()
         self.executor = ToolExecutor(settings, ws.kb())
         self.log = log or (lambda msg: None)
+        self.traces: list[RunTrace] = []
 
     def reset_fakes(self) -> None:
         """Clear the fake Jira and Slack inboxes between versions (offline mode only)."""
@@ -119,6 +124,7 @@ class Runner:
             client=self.client,
         )
         self.store.save_run(trace)
+        self.traces.append(trace)
         return trace
 
     def grade(self, trace: RunTrace, scenario: Scenario) -> RunGrade:
@@ -143,6 +149,7 @@ class Runner:
         """Grade stored traces for a version without re-running the agent."""
         scenarios = self.ws.scenarios()
         traces = self.store.list_runs(self.procedure.slug, version)
+        self.traces.extend(traces)
         grades = [self.grade(t, scenarios.get(t.scenario_id)) for t in traces]
         report = build_report(grades, self.rubric)
         report.save(self.ws.reports_dir)

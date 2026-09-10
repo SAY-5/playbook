@@ -47,11 +47,16 @@ class RunTrace:
     user_message: str
     started_at: str
     finished_at: str = ""
+    duration_ms: int = 0
     turns: list[ModelTurn] = field(default_factory=list)
     tool_calls: list[ToolCall] = field(default_factory=list)
     final_text: str = ""
     status: str = "running"
     error: str | None = None
+
+    @property
+    def tool_ms(self) -> int:
+        return sum(c.duration_ms for c in self.tool_calls)
 
     def tool_names(self) -> list[str]:
         return [c.name for c in self.tool_calls]
@@ -105,6 +110,7 @@ def run_agent(
         started_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
+    run_started = time.perf_counter()
 
     try:
         for turn in range(1, settings.max_steps + 1):
@@ -167,6 +173,7 @@ def run_agent(
     except Exception as exc:
         trace.status = "error"
         trace.error = f"{type(exc).__name__}: {exc}"
+    trace.duration_ms = int((time.perf_counter() - run_started) * 1000)
     trace.finished_at = datetime.now(UTC).isoformat(timespec="seconds")
     return trace
 
