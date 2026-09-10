@@ -153,6 +153,19 @@ out of the same rubric line.
 stops when every scenario passes, no correction applies, the pass rate stops improving, or the
 round limit is hit. Every version and report stays on disk.
 
+## Scenario bank and regression
+
+`runs/<procedure>/bank.json` holds one entry per scenario: the scenario itself, where it came from,
+and `outcomes`, a map from prompt version to pass or fail. `playbook bank` and `playbook regress`
+refresh it from `scenarios.yaml` and every stored report before doing anything else, so a scenario
+dropped from the set keeps its history and stays in the replay.
+
+`run_regression` runs the selected entries on a version and, for each, looks up the highest version
+below it that the bank scored. That outcome is the baseline: was passing and now failing is a
+regression, was failing and now passing is a fix, and no baseline at all makes the scenario new.
+The guard fails the run only for regressions. Per-tag rates come from the same outcomes, counted
+once per tag a scenario carries.
+
 ## Review and promotion
 
 `derive_corrections` produces `Correction`s; `ReviewQueue.propose` turns the ones not seen before

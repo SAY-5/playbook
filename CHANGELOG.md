@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.0.0 (2026-09-10)
+
+- `playbook bank` keeps every scenario a procedure has been run on, with its tags and how each
+  prompt version scored it, merging in `scenarios.yaml` and any other set on each call.
+- `playbook regress` replays the bank against a version, compares each scenario with the last
+  version that scored it, and exits non-zero when a previously passing scenario breaks.
+- New scenarios the bank has never scored are reported apart from regressions, and pass rates are
+  reported per tag. `--tag` and `--failures` narrow the replay.
+
 ## v3.0.0 (2026-09-10)
 
 - Every derived correction is a proposal a reviewer approves, edits or rejects before it enters a

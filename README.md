@@ -33,6 +33,9 @@ explicit corrections, and deploys the runner on AWS with Terraform.
 - **Review** holds each derived rule as a proposal an expert approves, edits or rejects, diffs the
   steps between two versions, and refuses to promote a version that still commits a forbidden
   action. Every decision is kept next to the runs as an audit trail.
+- **Regression safety** banks every scenario with its tags and per-version outcomes, replays the
+  bank against a new version, and fails the run when a scenario that used to pass breaks. Pass
+  rates are reported per tag.
 - **Deploy** with Terraform: S3 artifact bucket, SQS run queue with dead-letter queue, DynamoDB
   run index, Secrets Manager for API keys, and a Lambda runner. The same stack applies against
   LocalStack.
@@ -185,6 +188,8 @@ playbook promote PROCEDURE_DIR [--version N]   sign a version off, refused while
 playbook report PROCEDURE_DIR [--inbox]        before/after table from stored reports
 playbook coverage PROCEDURE_DIR [--strict]     decision-branch and rubric coverage of the scenario set
 playbook synthesize PROCEDURE_DIR [--only-uncovered]  one scenario per walkthrough decision branch
+playbook bank PROCEDURE_DIR [--add FILE]       the scenario bank: every scenario, its tags, its outcomes
+playbook regress PROCEDURE_DIR [--tag T]       replay the bank against a version, guard the result
 playbook serve-fakes                           serve the offline model, Jira and Slack stand-ins
 ```
 
@@ -192,6 +197,10 @@ Every command accepts `--runs-dir` (or `PLAYBOOK_RUNS_DIR`); `run`, `eval` and `
 `--live`; `eval` and `coverage` accept `--scenarios FILE` to use another scenario set, for example
 the synthesized one. A procedure directory contains `sop.md`, `walkthrough.md`, `rubric.yaml`,
 `scenarios.yaml` and optionally `kb.json`; see `procedures/`.
+
+Environment: `PLAYBOOK_MODEL`, `ANTHROPIC_API_KEY`, `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_TOKEN`,
+`PLAYBOOK_RUN_STORE=local|s3`, `PLAYBOOK_S3_BUCKET`, `PLAYBOOK_DDB_TABLE`, `AWS_ENDPOINT_URL`
+(LocalStack), `PLAYBOOK_MAX_STEPS`.
 
 ## Review and approval
 
@@ -264,9 +273,51 @@ scenario as a template, writes the branch values into the intake, and infers exp
 from existing scenarios that share the criterion's condition variables. Outcomes nothing can
 vouch for are left out and tagged `needs-expert:<key>` for the expert to confirm.
 
-Environment: `PLAYBOOK_MODEL`, `ANTHROPIC_API_KEY`, `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_TOKEN`,
-`PLAYBOOK_RUN_STORE=local|s3`, `PLAYBOOK_S3_BUCKET`, `PLAYBOOK_DDB_TABLE`, `AWS_ENDPOINT_URL`
-(LocalStack), `PLAYBOOK_MAX_STEPS`.
+## Regression safety
+
+Scenario sets are edited: branches get synthesized, cases get retired, an incident becomes a test.
+`playbook bank` keeps every scenario a procedure has been run on, with its tags and how each
+version scored it, in `runs/<procedure>/bank.json`. It folds in `scenarios.yaml` and every stored
+report on each call, and `--add FILE` merges another set, for example the synthesized one.
+
+```
+support-triage bank: 16 scenario(s), 11 tag(s), versions v1, v2, v3, 14 with a recorded failure
+  enterprise        6 scenario(s), 6 with a recorded failure
+  pii-phone         2 scenario(s), 2 with a recorded failure
+  sev3              4 scenario(s), 2 with a recorded failure
+historical failures: triage-01, triage-02, triage-03, triage-04, triage-05, triage-06, triage-07, triage-08, triage-09, triage-12, triage-13, triage-14, triage-15, triage-16
+```
+
+`playbook regress` replays the bank against a version and compares each scenario with the last
+version that scored it. A scenario that used to pass and now fails is a regression and fails the
+run; a scenario the bank has never scored is new, so its failure is reported separately and does
+not trip the guard. `--tag` narrows the replay, `--failures` replays only the cases with a recorded
+failure. Pass rates are reported per tag, which is where a version that trades one segment for
+another shows up (4 of the 11 tag rows shown):
+
+```
+support-triage regression of v3: 16 replayed, pass rate 100.0%, 2 fixed, 0 broken, 0 new failing
+  fixed: triage-05, triage-12
+per tag:
+  enterprise        6/6  100.0%
+  pii-phone         2/2  100.0%
+  sev3              4/4  100.0%
+  sev4              3/3  100.0%
+guard passed
+```
+
+Against a v4 carrying a deliberately bad correction (`When severity is sev3, transition to
+"Done".`), the guard exits non-zero and names what broke:
+
+```
+support-triage regression of v4: 16 replayed, pass rate 87.5%, 0 fixed, 2 broken, 0 new failing
+  broken: triage-10, triage-12
+per tag:
+  kb-miss           5/7  71.4%
+  pii-phone         1/2  50.0%
+  sev3              2/4  50.0%
+GUARD FAILED: 2 scenario(s) regressed
+```
 
 ## AWS deployment
 
@@ -292,7 +343,7 @@ multi-stage build that runs as a non-root user.
 ```
 playbook/ingest      SOP and walkthrough parser, Procedure model
 playbook/agent       PromptSpec, tools, tool loop, run store
-playbook/evals       scenarios, rubric, grader, judge, reports
+playbook/evals       scenarios, rubric, grader, judge, reports, scenario bank, regression run
 playbook/feedback    correction derivation, improvement loop, review queue, diff, promotion
 playbook/cli.py      the playbook command
 fakes/               offline Messages API, Jira and Slack stand-ins
@@ -308,6 +359,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for schemas and the offline grammar, and
 
 | version | date | what shipped |
 |---|---|---|
+| [v4.0.0](https://github.com/SAY-5/playbook/releases/tag/v4.0.0) | 2026-09-10 | tagged scenario bank, regression replay, previously-passing guard |
 | [v3.0.0](https://github.com/SAY-5/playbook/releases/tag/v3.0.0) | 2026-09-10 | review queue, version diff, promotion gate, audit trail |
 | [v2.0.0](https://github.com/SAY-5/playbook/releases/tag/v2.0.0) | 2026-09-08 | decision-branch coverage and scenario synthesis |
 | [v1.0.0](https://github.com/SAY-5/playbook/releases/tag/v1.0.0) | 2026-09-08 | ingest, prompt versions, tool loop, rubric evals, feedback loop, Terraform stack |
