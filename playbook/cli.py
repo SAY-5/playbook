@@ -18,7 +18,9 @@ from playbook.evals.coverage import coverage, format_coverage
 from playbook.evals.report import VersionReport, compare, format_table
 from playbook.evals.scenarios import ScenarioSet
 from playbook.evals.synthesis import synthesize as synthesize_scenarios
+from playbook.feedback.approval import PromotionLog, audit_trail, format_audit, format_promotion
 from playbook.feedback.corrections import derive_corrections
+from playbook.feedback.diff import diff_versions, format_diff
 from playbook.feedback.loop import improve_once, propose, run_loop
 from playbook.feedback.review import AUTO_REVIEWER, Proposal, ReviewQueue, format_review
 from playbook.runner import Runner, Workspace
@@ -286,6 +288,57 @@ def review_report(procedure_dir: Path, version: int | None, runs_dir: Path | Non
         return
     for v in versions:
         click.echo(format_review(queue.report(v)))
+
+
+@review.command(name="audit")
+@_procedure_arg
+@_runs_opt
+def review_audit(procedure_dir: Path, runs_dir: Path | None) -> None:
+    """The audit trail: every correction decision and every promotion, oldest first."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    store = Runner(settings, ws).store
+    entries = audit_trail(ReviewQueue(store, ws.slug).all(), PromotionLog(store, ws.slug).all())
+    click.echo(format_audit(ws.slug, entries))
+
+
+@main.command(name="diff")
+@_procedure_arg
+@click.option("--from", "from_version", type=int, default=None, help="Base version (default the one before --to).")
+@click.option("--to", "to_version", type=int, default=None, help="Version to compare (default latest).")
+@_runs_opt
+def diff_cmd(procedure_dir: Path, from_version: int | None, to_version: int | None, runs_dir: Path | None) -> None:
+    """Show the steps added, removed and changed between two versions of the procedure."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    after = ws.prompt(to_version)
+    before_version = from_version if from_version is not None else (after.parent_version or after.version)
+    if before_version == after.version:
+        raise click.ClickException(f"{after.label} has no earlier version to compare with")
+    before = ws.prompt(before_version)
+    click.echo(format_diff(diff_versions(ws.procedure(), before, after)))
+
+
+@main.command()
+@_procedure_arg
+@click.option("--version", "version", type=int, default=None, help="Version to promote (default latest).")
+@click.option("--note", default="", help="Why it is fit to use.")
+@_reviewer_opt
+@_runs_opt
+def promote(procedure_dir: Path, version: int | None, note: str, reviewer: str | None, runs_dir: Path | None) -> None:
+    """Sign a graded version off for use. Refused while forbidden actions or pending proposals remain."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    spec = ws.prompt(version)
+    if not (ws.reports_dir / f"{spec.label}.json").exists():
+        raise click.ClickException(f"no report for {spec.label}; run `playbook eval` first")
+    report = VersionReport.load(ws.reports_dir, spec.version)
+    store = Runner(settings, ws).store
+    pending = ReviewQueue(store, ws.slug).pending(spec.version)
+    decision = PromotionLog(store, ws.slug).decide(report, pending, _reviewer(reviewer), note=note)
+    click.echo(format_promotion(decision))
+    if not decision.promoted:
+        raise SystemExit(1)
 
 
 @main.command()
