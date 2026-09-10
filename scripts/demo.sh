@@ -28,3 +28,7 @@ done
 echo
 echo "== evidence: fake Jira and Slack inboxes after the last version =="
 uv run playbook report procedures/incident_comms --inbox | awk '/Jira inbox/{show=1} show'
+
+echo
+echo "== ops summary =="
+uv run playbook ops

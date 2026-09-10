@@ -13,6 +13,7 @@ from pathlib import Path
 import click
 import httpx
 
+from playbook.agent.store import make_store
 from playbook.config import FAKE_JIRA_PORT, FAKE_MODEL_PORT, FAKE_SLACK_PORT, Settings
 from playbook.evals.bank import ScenarioBank, format_bank
 from playbook.evals.coverage import coverage, format_coverage
@@ -25,6 +26,7 @@ from playbook.feedback.corrections import derive_corrections
 from playbook.feedback.diff import diff_versions, format_diff
 from playbook.feedback.loop import improve_once, propose, run_loop
 from playbook.feedback.review import AUTO_REVIEWER, Proposal, ReviewQueue, format_review
+from playbook.ops import collect_ops, format_ops, write_run_artifact
 from playbook.runner import Runner, Workspace
 
 _procedure_arg = click.argument("procedure_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
@@ -70,6 +72,12 @@ def _workspace(procedure_dir: Path, settings: Settings) -> Workspace:
     if not (ws.out_dir / "procedure.json").exists():
         ws.ingest()
     return ws
+
+
+def _artifact(ws: Workspace, command: str, runner: Runner, reports: list[VersionReport], **extra) -> None:
+    """Write this command's JSON report artifact and say where it went."""
+    path = write_run_artifact(ws.artifacts_dir, command, runner.procedure.slug, reports, runner.traces, extra or None)
+    click.echo(f"wrote {path}")
 
 
 @click.group()
@@ -161,6 +169,7 @@ def eval_cmd(
         if not g.passed:
             failed = ", ".join(f"{r.id} ({r.rationale})" for r in g.failed())
             click.echo(f"  FAIL {g.scenario_id}: {failed}")
+    _artifact(ws, "eval", runner, [report])
 
 
 @main.command()
@@ -378,6 +387,7 @@ def loop(
     click.echo(f"stopped: {result.stop_reason}")
     if result.pending:
         _print_proposals(result.pending)
+    _artifact(ws, "loop", runner, result.reports, stop_reason=result.stop_reason)
 
 
 def _bank(ws: Workspace, add_path: Path | None = None) -> tuple[ScenarioBank, list[str]]:
@@ -437,6 +447,22 @@ def regress(
     bank.record(spec.version, result.results)
     bank.save(ws.bank_path)
     click.echo(format_regression(result))
+    _artifact(
+        ws,
+        "regress",
+        runner,
+        [],
+        regression={
+            "version": result.prompt_version,
+            "replayed": len(result.outcomes),
+            "pass_rate": result.pass_rate,
+            "guard_passed": result.guard_passed,
+            "broken": result.broken,
+            "fixed": result.fixed,
+            "new_failing": result.new_failing,
+            "per_tag": {t.tag: t.rate for t in result.per_tag()},
+        },
+    )
     if not result.guard_passed:
         raise SystemExit(1)
 
@@ -527,6 +553,14 @@ def synthesize(procedure_dir: Path, only_uncovered: bool, out_path: Path | None,
         f"{result.branches_added} scenario(s) synthesized, {len(result.needs_expert)} need expert confirmation; "
         f"{after.branches_covered}/{after.branches_total} branches covered; wrote {out}"
     )
+
+
+@main.command(name="ops")
+@_runs_opt
+def ops_cmd(runs_dir: Path | None) -> None:
+    """Summarise the runs directory: versions, pass rates, open forbidden actions, runs and cost."""
+    settings = _settings(False, runs_dir)
+    click.echo(format_ops(collect_ops(settings.runs_dir, make_store(settings))))
 
 
 @main.command(name="serve-fakes")
