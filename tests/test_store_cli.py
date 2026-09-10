@@ -84,6 +84,35 @@ def test_cli_ingest_eval_and_report(settings: Settings, triage_dir: Path, tmp_pa
     assert r.exit_code == 0 and "triage-02: completed" in r.output
 
 
+def test_cli_diff_promote_and_audit(settings: Settings, triage_dir: Path, tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("PLAYBOOK_FAKE_MODEL_URL", settings.anthropic_base_url)
+    monkeypatch.setenv("PLAYBOOK_FAKE_JIRA_URL", settings.jira_base_url)
+    monkeypatch.setenv("PLAYBOOK_FAKE_SLACK_URL", settings.slack_base_url)
+    runs = tmp_path / "gate-runs"
+    where = ["--runs-dir", str(runs)]
+    cli = CliRunner()
+    r = cli.invoke(main, ["loop", str(triage_dir), *where, "--max-rounds", "4"])
+    assert r.exit_code == 0, r.output
+
+    r = cli.invoke(main, ["diff", str(triage_dir), *where, "--from", "1", "--to", "2"])
+    assert r.exit_code == 0, r.output
+    assert "0 step(s) added, 0 removed, 2 changed" in r.output
+    assert "changed [create-ticket]" in r.output and '+ Set summary to "[{severity}] {title}".' in r.output
+
+    r = cli.invoke(main, ["promote", str(triage_dir), *where, "--version", "1", "--as", "dana"])
+    assert r.exit_code == 1
+    assert "v1 blocked by dana" in r.output and "forbidden-action: no_pii_in_slack" in r.output
+
+    r = cli.invoke(main, ["promote", str(triage_dir), *where, "--as", "dana", "--note", "leaks cleared"])
+    assert r.exit_code == 0, r.output
+    assert "v3 promoted by dana" in r.output
+
+    r = cli.invoke(main, ["review", "audit", str(triage_dir), *where])
+    assert r.exit_code == 0, r.output
+    assert "audit trail" in r.output and "blocked   v1" in r.output and "promoted  v3" in r.output
+    assert r.output.count(" approved  p") >= 10
+
+
 def test_live_requires_api_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
