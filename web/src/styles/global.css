@@ -1186,3 +1186,7 @@ table.grid th.is-focus {
   font-size: 0.66rem;
   color: var(--ink-3);
 }
+
+.section__num {
+  justify-self: start;
+}
