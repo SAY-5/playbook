@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview",
-    "selfcheck": "tsx scripts/selfcheck.node.ts"
+    "selfcheck": "tsx scripts/selfcheck.node.ts",
+    "bundle": "tsc -p tsconfig.json && vite build",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "framer-motion": "^11.11.17",
