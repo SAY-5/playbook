@@ -186,6 +186,20 @@ version. `PromotionLog.decide` always writes a record under `promotions/<slug>/d
 with the reviewer, the blockers and the pass rate, so a refusal is as auditable as a sign-off, and
 `audit_trail` merges proposal decisions and promotions into one chronological list.
 
+## Operations
+
+`playbook.ops` reads the runs directory rather than any live state. For each procedure directory
+holding at least one prompt version it takes the versions from `prompts/`, the pass rate history
+and open forbidden actions from `reports/`, the promoted version and pending proposals from the
+store records, and the runs from the store. Metrics come from the traces: per-tool call counts,
+calls per run, tool latency as mean, p95 and max, and run wall time from `RunTrace.duration_ms`,
+which the tool loop measures with a monotonic clock.
+
+`write_run_artifact` writes one JSON file per command run under `runs/<procedure>/artifacts/`,
+named `<command>-<UTC timestamp>`. It holds the version scores with their failing scenarios, the
+metrics of the traces that command produced, and whatever the command adds: the loop's stop reason,
+the regression run's guard verdict and per-tag rates.
+
 ## Deployment
 
 `deploy/terraform` creates the artifact bucket (versioned, encrypted, private), the run queue with

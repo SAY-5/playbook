@@ -36,6 +36,9 @@ explicit corrections, and deploys the runner on AWS with Terraform.
 - **Regression safety** banks every scenario with its tags and per-version outcomes, replays the
   bank against a new version, and fails the run when a scenario that used to pass breaks. Pass
   rates are reported per tag.
+- **Operations**: `playbook ops` summarises a runs directory (procedures, versions, pass rate
+  history, open forbidden actions, last run and its duration, tool-call counts and latency), and
+  every graded command writes a JSON artifact with the same figures.
 - **Deploy** with Terraform: S3 artifact bucket, SQS run queue with dead-letter queue, DynamoDB
   run index, Secrets Manager for API keys, and a Lambda runner. The same stack applies against
   LocalStack.
@@ -64,14 +67,14 @@ performed; the live path is exercised by `tests/test_live.py`, which is skipped 
 
 ```
 make setup        # uv sync, Python 3.12
-make demo         # offline: serve fakes, ingest, run 24 scenarios, grade, improve, print tables
+make demo         # offline: serve fakes, ingest, run 24 scenarios, grade, improve, print tables and ops
 make lint test tf-validate
 ```
 
 `make demo` serves the fakes, ingests both sample procedures, builds prompt v1, runs the
 scenario sets (16 support triage requests, 8 incident reports), grades them against the rubrics,
 runs the feedback loop until every scenario passes or the pass rate plateaus, and prints the
-before/after tables and the Jira and Slack inbox evidence.
+before/after tables, the Jira and Slack inbox evidence and the ops summary.
 
 ## Measured results (offline mode)
 
@@ -186,6 +189,7 @@ playbook review report|audit PROCEDURE_DIR     per-version review counts; the fu
 playbook diff PROCEDURE_DIR [--from N --to M]  steps added, removed and changed between versions
 playbook promote PROCEDURE_DIR [--version N]   sign a version off, refused while the gate blocks
 playbook report PROCEDURE_DIR [--inbox]        before/after table from stored reports
+playbook ops [--runs-dir DIR]                  versions, pass rates, open forbidden actions, run cost
 playbook coverage PROCEDURE_DIR [--strict]     decision-branch and rubric coverage of the scenario set
 playbook synthesize PROCEDURE_DIR [--only-uncovered]  one scenario per walkthrough decision branch
 playbook bank PROCEDURE_DIR [--add FILE]       the scenario bank: every scenario, its tags, its outcomes
@@ -319,6 +323,63 @@ per tag:
 GUARD FAILED: 2 scenario(s) regressed
 ```
 
+## Operations
+
+`playbook ops` reads a runs directory back and answers what an operator asks between runs: which
+procedures are there, which prompt versions exist, how the pass rate moved, what forbidden actions
+are still open, which version is promoted, and what the runs cost. This is the tail of the same
+`make demo` the tables above come from:
+
+```
+playbook ops at 2026-09-10T09:04:57+00:00: 2 procedure(s), 5 prompt version(s), 24 scenario(s), 0 open forbidden action(s), 64 run(s), 308 tool call(s)
+incident-communications
+  versions: v1 v2 (latest v2, nothing promoted)
+  pass rate: v1 12.5%, v2 100.0%
+  open forbidden actions: 0
+  pending proposals: 0
+  last run: inc-08 on v2 at 2026-09-10T09:04:56+00:00 in 24 ms
+  runs: 16, tool calls 86 (5.38 per run), tool latency mean 0.05 ms, p95 0 ms, max 2 ms
+  tools: jira.comment 16, jira.create_issue 16, slack.lookup_channel 16, slack.post 38
+support-triage
+  versions: v1 v2 v3 (latest v3, nothing promoted)
+  pass rate: v1 12.5%, v2 87.5%, v3 100.0%
+  open forbidden actions: 0
+  pending proposals: 0
+  last run: triage-16 on v3 at 2026-09-10T09:04:55+00:00 in 17 ms
+  runs: 48, tool calls 222 (4.62 per run), tool latency mean 0.1 ms, p95 1 ms, max 5 ms
+  tools: jira.comment 48, jira.create_issue 48, jira.transition 48, kb.search 48, slack.post 30
+```
+
+`eval`, `loop` and `regress` each write a JSON artifact to
+`runs/<procedure>/artifacts/<command>-<timestamp>.json` holding the version scores, the failing
+scenarios and the measured cost. From the same run, with the `versions` list abbreviated:
+
+```json
+{
+  "artifact_id": "loop-20260910T090455",
+  "command": "loop",
+  "procedure": "support-triage",
+  "written_at": "2026-09-10T09:04:55+00:00",
+  "versions": [
+    { "version": 2, "scenarios": 16, "passed": 14, "pass_rate": 0.875, "mean_score": 0.9886,
+      "forbidden_violations": 2, "failing": ["triage-05", "triage-12"] },
+    { "version": 3, "scenarios": 16, "passed": 16, "pass_rate": 1.0, "mean_score": 1.0,
+      "forbidden_violations": 0, "failing": [] }
+  ],
+  "metrics": {
+    "runs": 48, "tool_calls": 222,
+    "by_tool": { "jira.comment": 48, "jira.create_issue": 48, "jira.transition": 48, "kb.search": 48, "slack.post": 30 },
+    "calls_per_run": 4.62, "tool_ms_mean": 0.1, "tool_ms_p95": 1, "tool_ms_max": 5,
+    "run_ms_mean": 23.21, "run_ms_total": 1114
+  },
+  "stop_reason": "all scenarios pass"
+}
+```
+
+Latency here is the offline stand-in on a laptop, so the interesting figures are the counts and
+their shape: 4.62 tool calls per run, and `slack.post` rising from one per run to two wherever the
+corrections added an escalation.
+
 ## AWS deployment
 
 ```
@@ -345,6 +406,7 @@ playbook/ingest      SOP and walkthrough parser, Procedure model
 playbook/agent       PromptSpec, tools, tool loop, run store
 playbook/evals       scenarios, rubric, grader, judge, reports, scenario bank, regression run
 playbook/feedback    correction derivation, improvement loop, review queue, diff, promotion
+playbook/ops.py      runs-directory summary, run metrics, JSON run artifacts
 playbook/cli.py      the playbook command
 fakes/               offline Messages API, Jira and Slack stand-ins
 procedures/          two sample procedures with rubrics and scenario sets
@@ -359,6 +421,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for schemas and the offline grammar, and
 
 | version | date | what shipped |
 |---|---|---|
+| [v5.0.0](https://github.com/SAY-5/playbook/releases/tag/v5.0.0) | 2026-09-10 | ops summary, per-run JSON artifacts, tool-call and latency metrics |
 | [v4.0.0](https://github.com/SAY-5/playbook/releases/tag/v4.0.0) | 2026-09-10 | tagged scenario bank, regression replay, previously-passing guard |
 | [v3.0.0](https://github.com/SAY-5/playbook/releases/tag/v3.0.0) | 2026-09-10 | review queue, version diff, promotion gate, audit trail |
 | [v2.0.0](https://github.com/SAY-5/playbook/releases/tag/v2.0.0) | 2026-09-08 | decision-branch coverage and scenario synthesis |

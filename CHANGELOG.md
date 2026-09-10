@@ -1,5 +1,16 @@
 # Changelog
 
+## v5.0.0 (2026-09-10)
+
+- `playbook ops` summarises a runs directory: procedures, prompt versions, pass rate history, open
+  forbidden actions with the criteria that failed, pending proposals, the promoted version, and the
+  last run with its duration.
+- `eval`, `loop` and `regress` each write a JSON artifact under `runs/<procedure>/artifacts/` with
+  the version scores, the failing scenarios and the measured cost of the run.
+- Tool-call counts per tool, calls per run, tool latency (mean, p95, max) and run wall time are
+  measured from the traces; each trace now records its own duration.
+- `make demo` prints the ops summary at the end.
+
 ## v4.0.0 (2026-09-10)
 
 - `playbook bank` keeps every scenario a procedure has been run on, with its tags and how each
