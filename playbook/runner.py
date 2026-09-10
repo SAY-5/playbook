@@ -53,6 +53,10 @@ class Workspace:
     def reports_dir(self) -> Path:
         return self.out_dir / "reports"
 
+    @property
+    def bank_path(self) -> Path:
+        return self.out_dir / "bank.json"
+
     def rubric(self) -> Rubric:
         return Rubric.load(self.procedure_dir / "rubric.yaml")
 

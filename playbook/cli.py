@@ -14,7 +14,9 @@ import click
 import httpx
 
 from playbook.config import FAKE_JIRA_PORT, FAKE_MODEL_PORT, FAKE_SLACK_PORT, Settings
+from playbook.evals.bank import ScenarioBank, format_bank
 from playbook.evals.coverage import coverage, format_coverage
+from playbook.evals.regression import format_regression, run_regression
 from playbook.evals.report import VersionReport, compare, format_table
 from playbook.evals.scenarios import ScenarioSet
 from playbook.evals.synthesis import synthesize as synthesize_scenarios
@@ -376,6 +378,67 @@ def loop(
     click.echo(f"stopped: {result.stop_reason}")
     if result.pending:
         _print_proposals(result.pending)
+
+
+def _bank(ws: Workspace, add_path: Path | None = None) -> tuple[ScenarioBank, list[str]]:
+    """Load the bank, fold in the current scenario set and every stored report, and save it."""
+    bank = ScenarioBank.load(ws.bank_path, ws.slug)
+    added = bank.add(ws.scenarios())
+    if add_path is not None:
+        added += bank.add(ScenarioSet.load(add_path), source=add_path.name)
+    for path in sorted(ws.reports_dir.glob("v*.json")):
+        stored = VersionReport.load(ws.reports_dir, int(path.stem[1:]))
+        bank.record(stored.prompt_version, {g.scenario_id: g.passed for g in stored.grades})
+    bank.save(ws.bank_path)
+    return bank, added
+
+
+@main.command(name="bank")
+@_procedure_arg
+@click.option(
+    "--add",
+    "add_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="Merge another scenario set into the bank, for example a synthesized one.",
+)
+@_runs_opt
+def bank_cmd(procedure_dir: Path, add_path: Path | None, runs_dir: Path | None) -> None:
+    """Show the scenario bank: every scenario ever run, its tags and its recorded outcomes."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    bank, added = _bank(ws, add_path)
+    if added:
+        click.echo(f"added {len(added)} scenario(s): {', '.join(added)}")
+    click.echo(format_bank(bank))
+
+
+@main.command(name="regress")
+@_procedure_arg
+@click.option("--version", "version", type=int, default=None, help="Version to replay (default latest).")
+@click.option("--tag", default=None, help="Only replay banked scenarios carrying this tag.")
+@click.option("--failures", "failures_only", is_flag=True, help="Replay only scenarios with a recorded failure.")
+@_live_opt
+@_runs_opt
+def regress(
+    procedure_dir: Path, version: int | None, tag: str | None, failures_only: bool, live: bool, runs_dir: Path | None
+) -> None:
+    """Replay the banked scenarios against a version; fails when a previously passing one breaks."""
+    settings = _settings(live, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    bank, _ = _bank(ws)
+    spec = ws.prompt(version)
+    runner = Runner(settings, ws, log=click.echo)
+    runner.reset_fakes()
+    try:
+        result = run_regression(runner, spec, bank, tag=tag, failures_only=failures_only)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    bank.record(spec.version, result.results)
+    bank.save(ws.bank_path)
+    click.echo(format_regression(result))
+    if not result.guard_passed:
+        raise SystemExit(1)
 
 
 @main.command()
