@@ -197,14 +197,14 @@ playbook regress PROCEDURE_DIR [--tag T]       replay the bank against a version
 playbook serve-fakes                           serve the offline model, Jira and Slack stand-ins
 ```
 
-Every command accepts `--runs-dir` (or `PLAYBOOK_RUNS_DIR`); `run`, `eval` and `loop` accept
-`--live`; `eval` and `coverage` accept `--scenarios FILE` to use another scenario set, for example
+Every command accepts `--runs-dir` (or `PLAYBOOK_RUNS_DIR`); `run`, `eval`, `loop` and `regress`
+accept `--live`; `eval` and `coverage` accept `--scenarios FILE` to use another scenario set, for example
 the synthesized one. A procedure directory contains `sop.md`, `walkthrough.md`, `rubric.yaml`,
 `scenarios.yaml` and optionally `kb.json`; see `procedures/`.
 
 Environment: `PLAYBOOK_MODEL`, `ANTHROPIC_API_KEY`, `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_TOKEN`,
 `PLAYBOOK_RUN_STORE=local|s3`, `PLAYBOOK_S3_BUCKET`, `PLAYBOOK_DDB_TABLE`, `AWS_ENDPOINT_URL`
-(LocalStack), `PLAYBOOK_MAX_STEPS`.
+(LocalStack), `PLAYBOOK_MAX_STEPS`, `PLAYBOOK_REVIEWER`.
 
 ## Review and approval
 
