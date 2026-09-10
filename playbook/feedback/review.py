@@ -17,6 +17,7 @@ from playbook.agent.store import RunStore
 
 STATUSES = ("pending", "approved", "rejected")
 AUTO_REVIEWER = "auto"
+KIND = "proposals"
 
 
 def _now() -> str:
@@ -96,7 +97,7 @@ class ReviewQueue:
         self.slug = procedure_slug
 
     def all(self, version: int | None = None) -> list[Proposal]:
-        items = [Proposal.from_dict(d) for d in self.store.list_proposals(self.slug)]
+        items = [Proposal.from_dict(d) for d in self.store.list_records(KIND, self.slug)]
         return [p for p in items if version is None or p.source_version == version]
 
     def get(self, proposal_id: str) -> Proposal:
@@ -129,7 +130,7 @@ class ReviewQueue:
                 criterion=c.criterion,
                 evidence=c.evidence,
             )
-            self.store.save_proposal(self.slug, p.id, p.to_dict())
+            self.store.save_record(KIND, self.slug, p.id, p.to_dict())
             existing.add((c.step_id, c.text))
             added.append(p)
         return added
@@ -149,7 +150,7 @@ class ReviewQueue:
         p.note = note
         p.applied_text = text.strip() if text is not None and status == "approved" else None
         p.decided_at = _now()
-        self.store.save_proposal(self.slug, p.id, p.to_dict())
+        self.store.save_record(KIND, self.slug, p.id, p.to_dict())
         return p
 
     def approve(self, proposal_id: str, reviewer: str, *, note: str = "", text: str | None = None) -> Proposal:
@@ -164,7 +165,7 @@ class ReviewQueue:
     def mark_applied(self, proposals: list[Proposal], new_version: int) -> None:
         for p in proposals:
             p.applied_in = new_version
-            self.store.save_proposal(self.slug, p.id, p.to_dict())
+            self.store.save_record(KIND, self.slug, p.id, p.to_dict())
 
     def report(self, version: int) -> ReviewReport:
         return ReviewReport(self.slug, version, self.all(version))
