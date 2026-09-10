@@ -1126,3 +1126,63 @@ table.grid th.is-focus {
     padding: 0.5rem 0.5rem;
   }
 }
+
+/* ---------------------------------------------------------------- version rail */
+
+.run__versions {
+  padding: 1.1rem 1.15rem 1.2rem;
+}
+
+.versions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.versions li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "tag bar rate" "tag note note";
+  align-items: center;
+  gap: 0.2rem 0.7rem;
+}
+
+.versions__tag {
+  grid-area: tag;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  min-width: 2.2rem;
+}
+
+.versions__bar {
+  grid-area: bar;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--graphite);
+  overflow: hidden;
+}
+
+.versions__fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-2), var(--pass));
+  transition: width 0.45s var(--ease);
+}
+
+.versions__rate {
+  grid-area: rate;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.versions__note {
+  grid-area: note;
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  color: var(--ink-3);
+}

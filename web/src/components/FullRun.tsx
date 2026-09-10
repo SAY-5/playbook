@@ -5,10 +5,23 @@ import { useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { FIXTURES } from "../fixtures";
 import type { Arc } from "../sim/arc";
+import { pct } from "../sim/report";
 import { selfCheck, type SelfCheckResult } from "../sim/selfcheck";
 import { Section } from "./Section";
 
 type Status = "idle" | "running" | "done";
+
+/** What the replay is about to print, so the console is never a blank box. */
+function idlePreamble(arc: Arc): string {
+  return [
+    `$ playbook loop procedures/${arc.dir} --max-rounds 5`,
+    "",
+    `  ${arc.scenarios} scenarios, ${arc.rounds.length} prompt versions, ${arc.log.length} log lines`,
+    "  each line is one graded run: version, scenario, verdict, score, tool calls",
+    "",
+    "  press Run to replay it",
+  ].join("\n");
+}
 
 export interface FullRunProps {
   arc: Arc;
@@ -88,11 +101,28 @@ export function FullRun({ arc }: FullRunProps) {
             <span className="run__pct">{progress}%</span>
           </div>
           <pre className="mono-block run__log" ref={logRef} aria-label="run log" tabIndex={0}>
-            {status === "idle" ? "Press Run to replay the loop." : visible}
+            {status === "idle" ? idlePreamble(arc) : visible}
           </pre>
         </div>
 
         <div className="run__side">
+          <div className="glass run__versions">
+            <h3 className="panel__title">Versions</h3>
+            <ul className="versions">
+              {arc.rounds.map((r) => (
+                <li key={r.spec.version}>
+                  <span className="versions__tag">v{r.spec.version}</span>
+                  <span className="versions__bar" aria-hidden="true">
+                    <span className="versions__fill" style={{ width: `${r.report.passRate * 100}%` }} />
+                  </span>
+                  <span className="versions__rate">{pct(r.report.passRate)}</span>
+                  <span className="versions__note">
+                    {r.corrections.length ? `+${r.corrections.length} corrections` : "from the SOP alone"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
           <div className="glass run__summary">
             <h3 className="panel__title">Summary</h3>
             <pre className="mono-block">{status === "done" ? arc.summary : "(prints when the replay finishes)"}</pre>
