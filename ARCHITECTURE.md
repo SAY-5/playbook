@@ -153,6 +153,26 @@ out of the same rubric line.
 stops when every scenario passes, no correction applies, the pass rate stops improving, or the
 round limit is hit. Every version and report stays on disk.
 
+## Review and promotion
+
+`derive_corrections` produces `Correction`s; `ReviewQueue.propose` turns the ones not seen before
+into `Proposal` records under `proposals/<slug>/<id>.json` in the run store, keyed `p<source
+version>-<NN>`. A decision sets `status`, `reviewer`, `note`, `decided_at` and, for an edit,
+`applied_text`; `final_text` is what reaches the prompt. `improve_once` applies only approved,
+unapplied proposals and stamps `applied_in` on them, so a proposal enters exactly one version.
+Deciding an applied proposal is refused.
+
+`playbook.feedback.diff` renders each version as `StepView`s (the step's SOP rules followed by the
+corrections attached to it) and matches them by step id: ids only in the later version are added,
+ids only in the earlier one removed, and a shared id is changed when its directives, title or
+position differ. Passing `after_proc` diffs across a re-ingested SOP.
+
+`playbook.feedback.approval` gates promotion. `gate` returns one blocker per forbidden criterion
+that failed in the graded report (with the scenarios) and one for undecided proposals from that
+version. `PromotionLog.decide` always writes a record under `promotions/<slug>/d<version>-<NN>.json`
+with the reviewer, the blockers and the pass rate, so a refusal is as auditable as a sign-off, and
+`audit_trail` merges proposal decisions and promotions into one chronological list.
+
 ## Deployment
 
 `deploy/terraform` creates the artifact bucket (versioned, encrypted, private), the run queue with

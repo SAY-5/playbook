@@ -30,6 +30,9 @@ explicit corrections, and deploys the runner on AWS with Terraform.
 - **Feedback** turns failed criteria into explicit rules appended to the relevant SOP step,
   creates the next prompt version, re-runs the scenario set and records the before/after delta.
   `playbook loop` iterates until the pass rate plateaus; every version is kept.
+- **Review** holds each derived rule as a proposal an expert approves, edits or rejects, diffs the
+  steps between two versions, and refuses to promote a version that still commits a forbidden
+  action. Every decision is kept next to the runs as an audit trail.
 - **Deploy** with Terraform: S3 artifact bucket, SQS run queue with dead-letter queue, DynamoDB
   run index, Secrets Manager for API keys, and a Lambda runner. The same stack applies against
   LocalStack.
@@ -175,6 +178,10 @@ playbook run PROCEDURE_DIR [--scenario ID]     run the agent on the scenario set
 playbook eval PROCEDURE_DIR [--compare N]      run and grade a prompt version, print the report
 playbook improve PROCEDURE_DIR [--dry-run]     derive corrections from the last report, create vN+1
 playbook loop PROCEDURE_DIR [--max-rounds N]   run, grade, correct and re-run until plateau
+playbook review list|approve|edit|reject       decide the proposals derived from a version
+playbook review report|audit PROCEDURE_DIR     per-version review counts; the full decision trail
+playbook diff PROCEDURE_DIR [--from N --to M]  steps added, removed and changed between versions
+playbook promote PROCEDURE_DIR [--version N]   sign a version off, refused while the gate blocks
 playbook report PROCEDURE_DIR [--inbox]        before/after table from stored reports
 playbook coverage PROCEDURE_DIR [--strict]     decision-branch and rubric coverage of the scenario set
 playbook synthesize PROCEDURE_DIR [--only-uncovered]  one scenario per walkthrough decision branch
@@ -185,6 +192,50 @@ Every command accepts `--runs-dir` (or `PLAYBOOK_RUNS_DIR`); `run`, `eval` and `
 `--live`; `eval` and `coverage` accept `--scenarios FILE` to use another scenario set, for example
 the synthesized one. A procedure directory contains `sop.md`, `walkthrough.md`, `rubric.yaml`,
 `scenarios.yaml` and optionally `kb.json`; see `procedures/`.
+
+## Review and approval
+
+A correction the loop derives is a proposal until someone decides on it. `playbook review list`
+shows the pending ones with the criterion and the scenarios that failed; `approve`, `edit --text`
+and `reject` record the decision under the reviewer's name (`--as`, `PLAYBOOK_REVIEWER` or the
+login name). Only approved proposals enter the next version, with the edited wording when there is
+one. `playbook loop` and `playbook improve --auto-approve` decide as the reviewer `auto`, so the
+unattended path is unchanged; `playbook loop --review` stops and hands the queue over instead.
+
+`playbook diff` compares two versions step by step, which is what a reviewer reads before signing
+off:
+
+```
+support-triage v2 to v3: 0 step(s) added, 0 removed, 1 changed, 4 unchanged
+  changed [escalate] Escalate when needed
+    + When posting to Slack, do not include the customer phone number.
+  unchanged: kb-search, create-ticket, record-findings, set-state
+```
+
+`playbook promote` signs a graded version off for use. The gate refuses while the version still
+commits a forbidden action or while proposals from it are undecided, and the refusal is recorded
+too:
+
+```
+$ playbook promote procedures/support_triage --version 1 --as dana
+v1 blocked by dana at 2026-09-10T08:51:52+00:00
+  blocked by forbidden-action: no_pii_in_slack in 2 scenario(s): triage-01, triage-03
+$ playbook promote procedures/support_triage --as dana --note "phone and email leaks cleared"
+v3 promoted by dana at 2026-09-10T08:51:53+00:00 (pass rate 100%, 0 forbidden action(s))
+```
+
+`playbook review audit` prints every decision in order, corrections and versions together (4 of
+the 14 lines of that run):
+
+```
+support-triage audit trail: 14 decision(s) by auto, dana
+  2026-09-10T08:51:50+00:00  auto       approved  p1-01    [create-ticket] Set summary to "[{severity}] {title}". (applied in v2)
+  2026-09-10T08:51:51+00:00  auto       approved  p2-01    [escalate] When posting to Slack, do not include the customer phone number. (applied in v3)
+  2026-09-10T08:51:52+00:00  dana       blocked   v1       forbidden-action: no_pii_in_slack in 2 scenario(s): triage-01, triage-03
+  2026-09-10T08:51:53+00:00  dana       promoted  v3       pass rate 100% note: phone and email leaks cleared
+```
+
+Proposals and promotions are stored with the runs, on disk or in S3 with a DynamoDB index.
 
 ## Scenario coverage and synthesis
 
@@ -242,7 +293,7 @@ multi-stage build that runs as a non-root user.
 playbook/ingest      SOP and walkthrough parser, Procedure model
 playbook/agent       PromptSpec, tools, tool loop, run store
 playbook/evals       scenarios, rubric, grader, judge, reports
-playbook/feedback    correction derivation, improvement loop
+playbook/feedback    correction derivation, improvement loop, review queue, diff, promotion
 playbook/cli.py      the playbook command
 fakes/               offline Messages API, Jira and Slack stand-ins
 procedures/          two sample procedures with rubrics and scenario sets
@@ -253,16 +304,12 @@ tests/               pytest suite (offline; LocalStack and live tests skip unles
 See [ARCHITECTURE.md](ARCHITECTURE.md) for schemas and the offline grammar, and
 [CONTRIBUTING.md](CONTRIBUTING.md) for adding procedures and criteria.
 
-## Changelog
+## Releases
 
-### v2.0.0
+| version | date | what shipped |
+|---|---|---|
+| [v3.0.0](https://github.com/SAY-5/playbook/releases/tag/v3.0.0) | 2026-09-10 | review queue, version diff, promotion gate, audit trail |
+| [v2.0.0](https://github.com/SAY-5/playbook/releases/tag/v2.0.0) | 2026-09-08 | decision-branch coverage and scenario synthesis |
+| [v1.0.0](https://github.com/SAY-5/playbook/releases/tag/v1.0.0) | 2026-09-08 | ingest, prompt versions, tool loop, rubric evals, feedback loop, Terraform stack |
 
-- Decision-branch and rubric coverage for scenario sets (`playbook coverage`), flagging
-  procedures with uncovered branches or one-sided criteria.
-- Scenario synthesis from walkthrough decision points (`playbook synthesize`), one scenario per
-  branch with inferred or expert-flagged expectations; `eval --scenarios` runs any set.
-
-### v1.0.0
-
-- Ingest with citations, versioned PromptSpec, tool-calling loop over the Messages API with the
-  offline stand-in, rubric grader, feedback loop, run store and the Terraform stack.
+Full entries in [CHANGELOG.md](CHANGELOG.md).
