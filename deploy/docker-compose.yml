@@ -20,7 +20,8 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    command: ["serve-fakes", "--model-port", "8801", "--jira-port", "8802", "--slack-port", "8803"]
+    # Bind every interface inside the container so the published ports reach the servers.
+    command: ["serve-fakes", "--host", "0.0.0.0", "--model-port", "8801", "--jira-port", "8802", "--slack-port", "8803"]
     ports:
       - "8801:8801"
       - "8802:8802"

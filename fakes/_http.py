@@ -57,6 +57,7 @@ class FakeServer:
 
     def __init__(self, app: Any, port: int, host: str = "127.0.0.1"):
         self.app = app
+        self.host = host
         self.httpd = ThreadingHTTPServer((host, port), JsonHandler)
         self.httpd.app = app  # type: ignore[attr-defined]
         self.httpd.daemon_threads = True
@@ -68,7 +69,9 @@ class FakeServer:
 
     @property
     def url(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
+        """A loopback URL for the server; a wildcard bind is reachable on every interface."""
+        host = "127.0.0.1" if self.host in ("", "0.0.0.0", "::") else self.host
+        return f"http://{host}:{self.port}"
 
     def start(self) -> FakeServer:
         self.thread.start()

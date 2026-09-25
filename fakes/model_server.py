@@ -417,5 +417,5 @@ class ModelApp:
         raise KeyError(path)
 
 
-def serve(port: int) -> FakeServer:
-    return FakeServer(ModelApp(), port).start()
+def serve(port: int, host: str = "127.0.0.1") -> FakeServer:
+    return FakeServer(ModelApp(), port, host).start()

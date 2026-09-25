@@ -89,5 +89,5 @@ class JiraApp:
         return {"id": issue["id"], "key": key}
 
 
-def serve(port: int) -> FakeServer:
-    return FakeServer(JiraApp(), port).start()
+def serve(port: int, host: str = "127.0.0.1") -> FakeServer:
+    return FakeServer(JiraApp(), port, host).start()

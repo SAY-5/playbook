@@ -1,7 +1,38 @@
+import socket
+
 import anthropic
 import httpx
 
+from fakes import model_server
 from fakes.model_server import RuleEngine, parse_action, parse_cond, parse_intake, parse_prompt
+
+
+def _non_loopback_ipv4() -> str | None:
+    """An address of this host on a real interface, found without sending a packet."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.connect(("10.255.255.255", 1))
+            address = probe.getsockname()[0]
+    except OSError:
+        return None
+    return None if address.startswith("127.") else address
+
+
+def test_fakes_bind_loopback_by_default_and_any_interface_on_request():
+    default = model_server.serve(0)
+    try:
+        assert default.httpd.server_address[0] == "127.0.0.1"
+        assert default.url == f"http://127.0.0.1:{default.port}"
+    finally:
+        default.stop()
+    wide = model_server.serve(0, host="0.0.0.0")
+    try:
+        assert wide.httpd.server_address[0] == "0.0.0.0"
+        assert wide.url == f"http://127.0.0.1:{wide.port}"
+        address = _non_loopback_ipv4() or "127.0.0.1"
+        assert httpx.get(f"http://{address}:{wide.port}/health", timeout=5).json()["ok"] is True
+    finally:
+        wide.stop()
 
 
 def test_model_fake_speaks_the_messages_api(fakes):
