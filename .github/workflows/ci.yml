@@ -35,3 +35,16 @@ jobs:
       - run: terraform -chdir=deploy/terraform fmt -check -recursive
       - run: terraform -chdir=deploy/terraform init -backend=false -input=false
       - run: terraform -chdir=deploy/terraform validate
+
+  lambda-zip:
+    # The Lambda bundle is built for x86_64 manylinux regardless of the host; this job proves the
+    # bundle imports on the runtime it targets.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: make lambda-zip
+      - run: cd build/lambda && python -c "import handler, pydantic_core, jiter, anthropic, boto3; print('handler imports; anthropic', anthropic.__version__)"
