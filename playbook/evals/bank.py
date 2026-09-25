@@ -3,14 +3,13 @@
 Scenario sets get edited: a branch is synthesized, a case is retired, an incident becomes a test.
 The bank keeps them all with their tags and their per-version outcomes, so a later version can be
 replayed against the whole history rather than against whatever `scenarios.yaml` happens to hold.
+The run store persists it as `<slug>/bank.json`.
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from playbook.evals.scenarios import Scenario, ScenarioSet
@@ -116,17 +115,8 @@ class ScenarioBank:
     def to_dict(self) -> dict[str, Any]:
         return {"procedure": self.procedure_slug, "entries": [e.to_dict() for e in self.entries]}
 
-    def save(self, path: Path) -> Path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
-        return path
-
     @classmethod
-    def load(cls, path: Path, procedure_slug: str) -> ScenarioBank:
-        """Load the bank, or start an empty one when the procedure has never banked a scenario."""
-        if not path.exists():
-            return cls(procedure_slug=procedure_slug)
-        data = json.loads(path.read_text())
+    def from_dict(cls, data: dict[str, Any]) -> ScenarioBank:
         return cls(procedure_slug=data["procedure"], entries=[BankEntry.from_dict(e) for e in data["entries"]])
 
 

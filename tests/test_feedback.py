@@ -2,7 +2,7 @@ from pathlib import Path
 
 from playbook.agent.prompt import Correction
 from playbook.config import Settings
-from playbook.evals.report import VersionReport, build_report, compare, format_table
+from playbook.evals.report import build_report, compare, format_table
 from playbook.feedback.corrections import derive_corrections
 from playbook.feedback.loop import improve_once, run_loop
 from playbook.runner import Runner, Workspace
@@ -36,7 +36,7 @@ def test_corrections_change_the_prompt_and_fix_a_failing_scenario(settings: Sett
     v2 = improve_once(runner, v1, report_v1)
     assert v2 is not None and v2.version == 2
     assert v1.render(runner.procedure) != v2.render(runner.procedure)
-    assert (runner.ws.prompts_dir / "v2.json").exists()
+    assert runner.store.prompt_versions(runner.procedure.slug) == [1, 2]
     runner.reset_fakes()
     trace = runner.run_scenario(v2, scenarios.get("triage-01"))
     grade = runner.grade(trace, scenarios.get("triage-01"))
@@ -51,9 +51,9 @@ def test_loop_keeps_every_version_and_stops_at_plateau(settings: Settings, incid
     rates = [r.report.pass_rate for r in result.rounds]
     assert rates[0] < rates[-1] == 1.0
     assert result.stop_reason == "all scenarios pass"
-    versions = sorted(p.name for p in runner.ws.prompts_dir.glob("v*.json"))
-    assert versions == [f"v{i}.json" for i in range(1, len(result.rounds) + 1)]
-    assert all((runner.ws.reports_dir / f"v{i}.json").exists() for i in range(1, len(result.rounds) + 1))
+    versions = list(range(1, len(result.rounds) + 1))
+    assert runner.store.prompt_versions(runner.procedure.slug) == versions
+    assert runner.store.report_versions(runner.procedure.slug) == versions
     last = result.rounds[-1]
     assert last.comparison is not None and last.comparison.newly_failing == []
     assert last.comparison.pass_rate_delta > 0
@@ -80,5 +80,8 @@ def test_regression_comparison_flags_newly_failing(settings: Settings, triage_di
     assert cmp_.pass_rate_delta < 0
     assert cmp_.criterion_deltas["never_done"] < 0
     assert cmp_.criterion_deltas["kb_searched"] == 0
-    reloaded = VersionReport.load(runner.ws.reports_dir, after.prompt_version)
+    reloaded = runner.ws.report(after.prompt_version)
     assert build_report(reloaded.grades, runner.rubric).pass_rate == after.pass_rate
+    grades = runner.store.list_grades(runner.procedure.slug, after.prompt_version)
+    assert [g.scenario_id for g in grades] == sorted(g.scenario_id for g in after.grades)
+    assert not next(g for g in grades if g.scenario_id == "triage-10").passed

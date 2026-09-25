@@ -88,13 +88,11 @@ def seeded(tmp_path: Path) -> Path:
     store = LocalRunStore(runs)
 
     for version in (1, 2):
-        PromptSpec(procedure_slug=TRIAGE, version=version).save(runs / "support_triage" / "prompts")
-    _report(TRIAGE, 1, [_grade(TRIAGE, 1, "s-01", True), _grade(TRIAGE, 1, "s-02", False, ("no_pii_in_slack",))]).save(
-        runs / "support_triage" / "reports"
+        store.save_prompt(PromptSpec(procedure_slug=TRIAGE, version=version))
+    store.save_report(
+        _report(TRIAGE, 1, [_grade(TRIAGE, 1, "s-01", True), _grade(TRIAGE, 1, "s-02", False, ("no_pii_in_slack",))])
     )
-    _report(TRIAGE, 2, [_grade(TRIAGE, 2, "s-01", True), _grade(TRIAGE, 2, "s-02", True)]).save(
-        runs / "support_triage" / "reports"
-    )
+    store.save_report(_report(TRIAGE, 2, [_grade(TRIAGE, 2, "s-01", True), _grade(TRIAGE, 2, "s-02", True)]))
     for trace in (
         _trace(TRIAGE, 1, "s-01", [("kb.search", 1), ("jira.create_issue", 3)], "2026-09-10T09:00:00+00:00", 10),
         _trace(TRIAGE, 1, "s-02", [("kb.search", 2)], "2026-09-10T09:00:01+00:00", 20),
@@ -125,17 +123,19 @@ def seeded(tmp_path: Path) -> Path:
                 "status": status,
             },
         )
-    PromotionLog(store, TRIAGE).decide(VersionReport.load(runs / "support_triage" / "reports", 2), [], "dana")
+    PromotionLog(store, TRIAGE).decide(store.load_report(TRIAGE, 2), [], "dana")
 
-    PromptSpec(procedure_slug=INCIDENT, version=1).save(runs / "incident_comms" / "prompts")
-    _report(
-        INCIDENT,
-        1,
-        [
-            _grade(INCIDENT, 1, "i-01", True),
-            _grade(INCIDENT, 1, "i-02", False, ("never_general", "not_resolved_in_first_post")),
-        ],
-    ).save(runs / "incident_comms" / "reports")
+    store.save_prompt(PromptSpec(procedure_slug=INCIDENT, version=1))
+    store.save_report(
+        _report(
+            INCIDENT,
+            1,
+            [
+                _grade(INCIDENT, 1, "i-01", True),
+                _grade(INCIDENT, 1, "i-02", False, ("never_general", "not_resolved_in_first_post")),
+            ],
+        )
+    )
     store.save_run(
         _trace(INCIDENT, 1, "i-01", [("slack.lookup_channel", 6), ("slack.post", 8)], "2026-09-10T09:00:04+00:00", 50)
     )
@@ -143,7 +143,8 @@ def seeded(tmp_path: Path) -> Path:
 
 
 def test_ops_summary_counts_on_the_seeded_fixture(seeded: Path):
-    summary = collect_ops(seeded, LocalRunStore(seeded))
+    summary = collect_ops(LocalRunStore(seeded))
+    assert summary.location == str(seeded)
     assert [p.slug for p in summary.procedures] == [INCIDENT, TRIAGE]
     assert summary.total_versions == 3
     assert summary.total_scenarios == 4
@@ -175,7 +176,7 @@ def test_tool_call_and_latency_metrics(seeded: Path):
     assert m.run_ms_mean == 25.0 and m.run_ms_total == 100
     assert measure([]).tool_calls == 0
 
-    text = format_ops(collect_ops(seeded, store))
+    text = format_ops(collect_ops(store))
     assert (
         "2 procedure(s), 3 prompt version(s), 4 scenario(s), 2 open forbidden action(s), 5 run(s), 9 tool call(s)"
         in text
@@ -190,7 +191,7 @@ def test_tool_call_and_latency_metrics(seeded: Path):
 
 def test_run_artifact_records_versions_and_metrics(seeded: Path, tmp_path: Path):
     store = LocalRunStore(seeded)
-    reports = [VersionReport.load(seeded / "support_triage" / "reports", v) for v in (1, 2)]
+    reports = [store.load_report(TRIAGE, v) for v in (1, 2)]
     traces = [t for v in (1, 2) for t in store.list_runs(TRIAGE, v)]
     path = write_run_artifact(tmp_path / "artifacts", "loop", TRIAGE, reports, traces, {"stop_reason": "all pass"})
 
@@ -223,7 +224,7 @@ def test_cli_eval_writes_an_artifact_and_ops_reads_it(
     r = cli.invoke(main, ["eval", str(triage_dir), "--runs-dir", str(runs)])
     assert r.exit_code == 0, r.output
 
-    artifacts = sorted((runs / "support_triage" / "artifacts").glob("eval-*.json"))
+    artifacts = sorted((runs / "support-triage" / "artifacts").glob("eval-*.json"))
     assert len(artifacts) == 1
     data = json.loads(artifacts[0].read_text())
     assert data["versions"][0]["scenarios"] == 16 and data["metrics"]["runs"] == 16

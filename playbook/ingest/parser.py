@@ -67,6 +67,15 @@ def slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+def procedure_slug(procedure_dir: Path) -> str:
+    """The slug of the procedure in `<dir>/sop.md`, taken from its `# Name` heading."""
+    sop = procedure_dir / "sop.md"
+    for line in sop.read_text().splitlines():
+        if line.startswith("# "):
+            return slugify(line[2:].strip())
+    raise ValueError(f"{sop.name}: missing '# <name>' heading")
+
+
 def _tokens(text: str) -> set[str]:
     return {t for t in re.findall(r"[a-z0-9#.-]+", text.lower()) if t not in _STOPWORDS and len(t) > 2}
 

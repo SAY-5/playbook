@@ -1,9 +1,9 @@
-"""Operational view of a runs directory: what exists, how it scored, and what it cost.
+"""Operational view of a run store: what exists, how it scored, and what it cost.
 
-Everything the pipeline produces lands under one runs directory: prompt versions, graded reports,
-run traces, proposals and promotions. This module reads that directory back and answers the
-questions an operator asks between runs, and writes the per-run JSON artifact that carries the same
-figures out of the machine.
+Everything the pipeline produces lands in one run store keyed by procedure: prompt versions,
+graded reports, run traces and grades, proposals and promotions. This module reads the store back
+and answers the questions an operator asks between runs, and writes the per-run JSON artifact that
+carries the same figures out of the machine.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from playbook.agent.loop import RunTrace
-from playbook.agent.prompt import PromptSpec
 from playbook.agent.store import RunStore
 from playbook.evals.report import VersionReport
 from playbook.feedback.approval import PromotionLog
@@ -73,7 +72,6 @@ def measure(traces: list[RunTrace]) -> Metrics:
 @dataclass
 class ProcedureOps:
     slug: str
-    directory: str
     versions: list[int]
     promoted_version: int | None
     scenarios: int
@@ -95,7 +93,7 @@ class ProcedureOps:
 @dataclass
 class OpsSummary:
     generated_at: str
-    runs_dir: str
+    location: str
     procedures: list[ProcedureOps]
 
     @property
@@ -119,18 +117,12 @@ class OpsSummary:
         return sum(p.metrics.tool_calls for p in self.procedures)
 
 
-def _versions(prompts_dir: Path) -> list[int]:
-    return sorted(int(p.stem[1:]) for p in prompts_dir.glob("v*.json") if p.stem[1:].isdigit())
-
-
-def _procedure_ops(out_dir: Path, store: RunStore) -> ProcedureOps | None:
-    prompts_dir = out_dir / "prompts"
-    versions = _versions(prompts_dir)
+def _procedure_ops(slug: str, store: RunStore) -> ProcedureOps | None:
+    versions = store.prompt_versions(slug)
     if not versions:
         return None
-    slug = PromptSpec.load(prompts_dir, versions[0]).procedure_slug
-    reports_dir = out_dir / "reports"
-    reports = [VersionReport.load(reports_dir, v) for v in versions if (reports_dir / f"v{v}.json").exists()]
+    graded = set(store.report_versions(slug))
+    reports = [store.load_report(slug, v) for v in versions if v in graded]
     traces = [t for v in versions for t in store.list_runs(slug, v)]
     latest = reports[-1] if reports else None
     offenders = sorted(
@@ -139,7 +131,6 @@ def _procedure_ops(out_dir: Path, store: RunStore) -> ProcedureOps | None:
     last = max(traces, key=lambda t: (t.started_at, t.prompt_version, t.scenario_id), default=None)
     return ProcedureOps(
         slug=slug,
-        directory=out_dir.name,
         versions=versions,
         promoted_version=PromotionLog(store, slug).current(),
         scenarios=latest.scenarios if latest else 0,
@@ -155,16 +146,12 @@ def _procedure_ops(out_dir: Path, store: RunStore) -> ProcedureOps | None:
     )
 
 
-def collect_ops(runs_dir: Path, store: RunStore) -> OpsSummary:
-    """Read every procedure under `runs_dir` that has at least one prompt version."""
-    procedures = []
-    for out_dir in sorted(p for p in runs_dir.iterdir() if p.is_dir()) if runs_dir.exists() else []:
-        ops = _procedure_ops(out_dir, store)
-        if ops is not None:
-            procedures.append(ops)
+def collect_ops(store: RunStore) -> OpsSummary:
+    """Read every procedure in the store that has at least one prompt version."""
+    procedures = [ops for ops in (_procedure_ops(slug, store) for slug in store.procedures()) if ops is not None]
     return OpsSummary(
         generated_at=datetime.now(UTC).isoformat(timespec="seconds"),
-        runs_dir=str(runs_dir),
+        location=store.location,
         procedures=procedures,
     )
 

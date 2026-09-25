@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pytest
+
 from playbook.agent.prompt import Correction, PromptSpec
+from playbook.agent.store import LocalRunStore
 from playbook.ingest import ingest_procedure
 
 
@@ -38,9 +41,12 @@ def test_versioning_appends_corrections_under_the_step_and_dedups(triage_dir: Pa
     assert [c.version for c in v3.corrections] == [2, 3]
     assert v1.corrections == []
 
-    prompts = tmp_path / "prompts"
+    store = LocalRunStore(tmp_path)
     for spec in (v1, v2, v3):
-        spec.save(prompts)
-    assert PromptSpec.latest(prompts).version == 3
-    assert PromptSpec.load(prompts, 2).corrections == v2.corrections
-    assert PromptSpec.latest(tmp_path / "missing") is None
+        store.save_prompt(spec)
+    assert store.prompt_versions(proc.slug) == [1, 2, 3]
+    assert store.load_prompt(proc.slug, 2).corrections == v2.corrections
+    assert (tmp_path / proc.slug / "prompts" / "v3.json").exists()
+    assert store.prompt_versions("missing") == []
+    with pytest.raises(KeyError, match="no prompt v9"):
+        store.load_prompt(proc.slug, 9)

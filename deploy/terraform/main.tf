@@ -170,6 +170,7 @@ resource "aws_lambda_function" "runner" {
       PLAYBOOK_DDB_TABLE      = aws_dynamodb_table.run_index.name
       PLAYBOOK_SECRET_ID      = aws_secretsmanager_secret.api_keys.name
       PLAYBOOK_PROCEDURES_DIR = "/var/task/procedures"
+      PLAYBOOK_RUNS_DIR       = "/tmp/playbook"
     }
   }
 

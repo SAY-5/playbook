@@ -1,7 +1,7 @@
 """Turn an expert's SOP and walkthrough into a structured Procedure."""
 
 from playbook.ingest.models import Citation, DecisionPoint, Procedure, Rule, Step
-from playbook.ingest.parser import ingest_procedure, load_procedure, parse_sop, parse_walkthrough
+from playbook.ingest.parser import ingest_procedure, load_procedure, parse_sop, parse_walkthrough, procedure_slug
 
 __all__ = [
     "Citation",
@@ -13,4 +13,5 @@ __all__ = [
     "load_procedure",
     "parse_sop",
     "parse_walkthrough",
+    "procedure_slug",
 ]

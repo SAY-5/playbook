@@ -1,11 +1,12 @@
-"""Versioned system prompts built from a Procedure plus accumulated corrections."""
+"""Versioned system prompts built from a Procedure plus accumulated corrections.
+
+Versions are persisted by the run store (`playbook.agent.store`) as `<slug>/prompts/vN.json`.
+"""
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from playbook.ingest.models import Procedure
@@ -116,22 +117,3 @@ class PromptSpec:
             created_at=data.get("created_at", ""),
             notes=data.get("notes", ""),
         )
-
-    def save(self, prompts_dir: Path) -> Path:
-        prompts_dir.mkdir(parents=True, exist_ok=True)
-        path = prompts_dir / f"{self.label}.json"
-        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
-        return path
-
-    @classmethod
-    def load(cls, prompts_dir: Path, version: int | str) -> PromptSpec:
-        label = version if isinstance(version, str) else f"v{version}"
-        return cls.from_dict(json.loads((prompts_dir / f"{label}.json").read_text()))
-
-    @classmethod
-    def latest(cls, prompts_dir: Path) -> PromptSpec | None:
-        versions = sorted(
-            (int(p.stem[1:]) for p in prompts_dir.glob("v*.json") if p.stem[1:].isdigit()),
-            reverse=True,
-        )
-        return cls.load(prompts_dir, versions[0]) if versions else None

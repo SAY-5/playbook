@@ -56,7 +56,7 @@ def improve_once(
     new = spec.with_corrections([p.to_correction() for p in approved], notes=notes)
     if len(new.corrections) == len(spec.corrections):
         return None
-    new.save(runner.ws.prompts_dir)
+    runner.store.save_prompt(new)
     queue.mark_applied(approved, new.version)
     return new
 
