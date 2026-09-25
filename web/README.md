@@ -1,8 +1,14 @@
 # Browser demo
 
 A static page that runs the Playbook offline pipeline in the browser: ingest, prompt versions,
-the tool-calling loop, the rubric grader and the correction loop. No backend, no network calls,
-no API key. Vite, React 18 and TypeScript in strict mode.
+the tool-calling loop, the rubric grader and the correction loop. No backend, no API calls, no
+API key; the fonts are served with the page from `public/fonts`, so a loaded page makes no
+cross-origin request. Vite, React 18 and TypeScript in strict mode.
+
+The procedures the page runs are the ones under `../procedures` in the repository root, read at
+build time through the `@procedures` alias in `vite.config.ts`; `scripts/selfcheck.node.ts` reads
+the same directory. There is no copy under `src/` to keep in sync, which also means a hosted build
+needs the repository root available, not only `web/`.
 
 `src/sim/` is a port of the Python offline path, module for module:
 
@@ -47,6 +53,17 @@ different seed changes run ids without changing a single grade.
    appended to, the criterion that failed and the scenarios that produced it.
 4. **Run the whole arc** replays the loop's log, then prints the summary block and the self-check
    result.
+
+## Fonts
+
+`public/fonts` holds Clash Display 500, 600 and 700 (Indian Type Foundry, distributed by
+Fontshare under the ITF Free Font License) and the latin subset of JetBrains Mono 400, 500 and
+600 (SIL Open Font License 1.1; the license text is in `public/fonts/OFL-JetBrainsMono.txt`).
+
+## Continuous integration
+
+The `web` job in `.github/workflows/ci.yml` runs `npm ci`, `npm run typecheck`, `npm run selfcheck`
+and `npm run build` on the Node major pinned in `.nvmrc`.
 
 ## Deployment
 

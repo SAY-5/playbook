@@ -50,7 +50,7 @@ export function Footer() {
             Expert SOP to deployed agent, with evals. The Python package runs the same pipeline
             against the Anthropic Messages API, Jira and Slack, stores traces in S3 with a DynamoDB
             index, and deploys the runner on AWS with Terraform. This page is the offline mode,
-            ported to the browser: no backend, no network calls, no key.
+            ported to the browser: no backend, no API calls, no key.
           </p>
         </div>
         <nav className="footer__links" aria-label="repository">
