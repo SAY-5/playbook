@@ -1,6 +1,6 @@
-/* Node entry for the self-check: loads the fixture files from disk (Vite's ?raw imports are not
-   available here), reads the simulation modules so the purity assertions can scan them, and
-   prints the same tables the CLI prints. Exits non-zero on the first failed assertion. */
+/* Node entry for the self-check: loads the procedure files from ../../procedures (Vite's ?raw
+   imports are not available here), reads the simulation modules so the purity assertions can scan
+   them, and prints the same tables the CLI prints. Exits non-zero on the first failed assertion. */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,7 +8,7 @@ import type { ProcedureFixture } from "../src/fixtures";
 import { selfCheck, type SourceFile } from "../src/sim/selfcheck";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "..", "src", "fixtures");
+const root = join(here, "..", "..", "procedures");
 const simDir = join(here, "..", "src", "sim");
 const read = (dir: string, name: string) => readFileSync(join(dir, name), "utf8");
 
