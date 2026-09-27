@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 import type { ProcedureFixture } from "../src/fixtures";
 import { selfCheck, type SourceFile } from "../src/sim/selfcheck";
 
@@ -18,8 +19,8 @@ const fixtures: ProcedureFixture[] = [
     label: "Support triage",
     sop: read(join(root, "support_triage"), "sop.md"),
     walkthrough: read(join(root, "support_triage"), "walkthrough.md"),
-    rubricYaml: read(join(root, "support_triage"), "rubric.yaml"),
-    scenariosYaml: read(join(root, "support_triage"), "scenarios.yaml"),
+    rubric: parse(read(join(root, "support_triage"), "rubric.yaml")),
+    scenarios: parse(read(join(root, "support_triage"), "scenarios.yaml")),
     kb: JSON.parse(read(join(root, "support_triage"), "kb.json")),
   },
   {
@@ -27,8 +28,8 @@ const fixtures: ProcedureFixture[] = [
     label: "Incident communications",
     sop: read(join(root, "incident_comms"), "sop.md"),
     walkthrough: read(join(root, "incident_comms"), "walkthrough.md"),
-    rubricYaml: read(join(root, "incident_comms"), "rubric.yaml"),
-    scenariosYaml: read(join(root, "incident_comms"), "scenarios.yaml"),
+    rubric: parse(read(join(root, "incident_comms"), "rubric.yaml")),
+    scenarios: parse(read(join(root, "incident_comms"), "scenarios.yaml")),
     kb: [],
   },
 ];

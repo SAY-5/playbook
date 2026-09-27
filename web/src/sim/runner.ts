@@ -28,8 +28,8 @@ export function openWorkspace(fixture: ProcedureFixture): Workspace {
   return {
     fixture,
     procedure: ingestProcedure(fixture.sop, fixture.walkthrough),
-    rubric: loadRubric(fixture.rubricYaml),
-    scenarios: loadScenarios(fixture.scenariosYaml),
+    rubric: loadRubric(fixture.rubric),
+    scenarios: loadScenarios(fixture.scenarios),
     kb: new KnowledgeBase(fixture.kb),
   };
 }
