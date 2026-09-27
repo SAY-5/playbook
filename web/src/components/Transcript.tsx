@@ -4,10 +4,12 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { scenarioIds, traceFor, type Arc } from "../sim/arc";
-import type { RunTrace } from "../sim/types";
+import { condText, parsePrompt, type Directive } from "../sim/engine";
+import type { Correction, RunTrace } from "../sim/types";
 import { Section } from "./Section";
 
-type EntryKind = "intake" | "model" | "tool" | "final";
+type EntryKind = "intake" | "model" | "tool" | "final" | "rule" | "ignored";
+type Rail = "turns" | "rules";
 
 interface Entry {
   kind: EntryKind;
@@ -48,6 +50,53 @@ function buildEntries(trace: RunTrace): Entry[] {
   return entries;
 }
 
+/** What a parsed directive makes the stand-in do, in the grammar's own words. */
+function effectOf(d: Directive): string {
+  switch (d.kind) {
+    case "project":
+      return `use project ${d.value}`;
+    case "set":
+      return `set ${d.field} to "${d.value}"`;
+    case "post":
+      return `post to ${d.channel}${d.mentionKey ? " mentioning the issue key" : ""}`;
+    case "transition":
+      return `transition to "${d.value}"${d.elseValue ? `, otherwise "${d.elseValue}"` : ""}`;
+    case "exclude":
+      return `do not include the customer ${d.value}`;
+  }
+}
+
+/* The stand-in only obeys prompt lines it can parse, so the rules it extracted and the prose it
+   ignored are what explain why one version fails and the next one passes. */
+function buildRules(systemPrompt: string, corrections: Correction[]): Entry[] {
+  const parsed = parsePrompt(systemPrompt);
+  const addedIn = new Map(corrections.map((c) => [c.text.trim(), c.version]));
+  const entries: Entry[] = parsed.directives.map((d) => {
+    const version = addedIn.get(d.source.trim());
+    return {
+      kind: "rule",
+      label: effectOf(d),
+      meta: `${d.stepId ?? "no step"} - ${condText(d.cond)}${version ? ` - added in v${version}` : ""}`,
+      body: [
+        `prompt line\n${d.source}`,
+        `step\n${d.stepId ?? "(outside a step)"}`,
+        `condition\n${condText(d.cond)}`,
+        `effect\n${effectOf(d)}`,
+        version ? `origin\ncorrection added in v${version}` : "origin\nrendered from the SOP",
+      ].join("\n\n"),
+    };
+  });
+  for (const line of parsed.ignored) {
+    entries.push({
+      kind: "ignored",
+      label: line.length > 68 ? `${line.slice(0, 68)}...` : line,
+      meta: "prose the stand-in ignored",
+      body: `ignored prompt line\n${line}\n\nThe stand-in parses rules, not prose, so this line changes nothing it does.`,
+    });
+  }
+  return entries;
+}
+
 export interface TranscriptProps {
   arc: Arc;
 }
@@ -59,6 +108,7 @@ export function Transcript({ arc }: TranscriptProps) {
   const [scenario, setScenario] = useState(ids[0]);
   const [round, setRound] = useState(lastRound);
   const [step, setStep] = useState(0);
+  const [rail, setRail] = useState<Rail>("turns");
 
   useEffect(() => {
     setScenario(ids[0]);
@@ -67,7 +117,12 @@ export function Transcript({ arc }: TranscriptProps) {
   }, [arc, ids]);
 
   const trace = traceFor(arc, round, scenario);
-  const entries = useMemo(() => (trace ? buildEntries(trace) : []), [trace]);
+  const turns = useMemo(() => (trace ? buildEntries(trace) : []), [trace]);
+  const rules = useMemo(
+    () => (trace ? buildRules(trace.systemPrompt, arc.rounds[round]?.spec.corrections ?? []) : []),
+    [trace, arc, round],
+  );
+  const entries = rail === "turns" ? turns : rules;
   const index = Math.min(step, Math.max(0, entries.length - 1));
   const current = entries[index];
   const grade = arc.rounds[round]?.report.grades.find((g) => g.scenarioId === scenario);
@@ -81,7 +136,10 @@ export function Transcript({ arc }: TranscriptProps) {
         <>
           The loop is bounded and every turn is recorded: the rendered system prompt, each model
           turn with its stop reason, each tool call with its arguments and the JSON the fake Jira,
-          Slack or knowledge base returned. Pick a scenario and a prompt version and walk it.
+          Slack or knowledge base returned. Pick a scenario and a prompt version and walk it. The
+          second rail tab lists what the stand-in actually parsed out of that version&rsquo;s prompt:
+          each rule with its condition and the step it came from, which corrections added it, and
+          the prose it ignored.
         </>
       }
       aside={
@@ -122,14 +180,40 @@ export function Transcript({ arc }: TranscriptProps) {
               ))}
             </select>
           </label>
+          <div className="seg seg--rail" role="group" aria-label="rail contents">
+            <button
+              type="button"
+              className="seg__btn"
+              aria-pressed={rail === "turns"}
+              onClick={() => {
+                setRail("turns");
+                setStep(0);
+              }}
+            >
+              turns
+            </button>
+            <button
+              type="button"
+              className="seg__btn"
+              aria-pressed={rail === "rules"}
+              onClick={() => {
+                setRail("rules");
+                setStep(0);
+              }}
+            >
+              what the stand-in parsed
+            </button>
+          </div>
           <p className="transcript__verdict">
             <span className={`chip ${grade?.passed ? "chip--pass" : "chip--fail"}`}>
               {grade?.passed ? "pass" : "fail"}
             </span>
             <span className="chip">score {grade ? (grade.score * 100).toFixed(0) : "0"}%</span>
-            <span className="chip">{entries.length} entries</span>
+            <span className="chip">
+              {entries.length} {rail === "turns" ? "entries" : "lines"}
+            </span>
           </p>
-          <ol className="steps" aria-label="transcript entries">
+          <ol className="steps" aria-label={rail === "turns" ? "transcript entries" : "parsed prompt lines"}>
             {entries.map((entry, i) => (
               <li key={`${entry.kind}-${i}`}>
                 <button
@@ -171,7 +255,7 @@ export function Transcript({ arc }: TranscriptProps) {
           <div className="transcript__bodywrap">
             <AnimatePresence mode="wait" initial={false}>
               <motion.pre
-                key={`${scenario}-${round}-${index}`}
+                key={`${rail}-${scenario}-${round}-${index}`}
                 className="mono-block transcript__body"
                 initial={reduced ? false : { opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}

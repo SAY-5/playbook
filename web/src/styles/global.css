@@ -753,6 +753,30 @@ table.tbl th {
   background: var(--warn);
 }
 
+.steps__item--rule .steps__dot {
+  background: var(--accent-2);
+}
+
+.steps__item--ignored .steps__dot {
+  background: var(--graphite-2);
+}
+
+.steps__item--ignored .steps__label {
+  color: var(--ink-3);
+}
+
+/* The rail tabs sit above a narrow column, so they wrap and use the mono scale. */
+.seg--rail {
+  flex-wrap: wrap;
+  justify-self: start;
+}
+
+.seg--rail .seg__btn {
+  padding: 0.3rem 0.6rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
 .steps__label {
   grid-area: label;
   font-family: var(--mono);

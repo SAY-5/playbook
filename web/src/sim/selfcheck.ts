@@ -4,6 +4,7 @@
 import type { ProcedureFixture } from "../fixtures";
 import { PCT_CASES } from "../fixtures/pct-cases";
 import { arcDigest, arcRunIds, computeArc, type Arc } from "./arc";
+import { parsePrompt } from "./engine";
 import { pct } from "./report";
 import type { RunTrace } from "./types";
 
@@ -89,6 +90,19 @@ function checkTriage(c: Checks, arc: Arc): void {
     `${arc.rounds[arc.rounds.length - 1].report.passed}/${arc.scenarios}`,
   );
   c.is("support triage: no scenario regresses between rounds", arc.rounds.map((r) => r.comparison?.newlyFailing.length ?? 0), [0, 0, 0]);
+}
+
+/* The directive inspector in the transcript shows what the stand-in parsed out of each prompt
+   version; these are the counts the page displays. */
+function checkInspector(c: Checks, arc: Arc): void {
+  const parsed = arc.rounds.map((r) => parsePrompt(r.outcomes[0].trace.systemPrompt));
+  c.is("support triage: parsed directives per version", parsed.map((p) => p.directives.length), [3, 14, 15]);
+  c.is(
+    "support triage: priority rules per version (none in v1, one per README correction in v2)",
+    parsed.map((p) => p.directives.filter((d) => d.kind === "set" && d.field === "priority").length),
+    [0, 6, 6],
+  );
+  c.is("support triage: prose the stand-in ignores per version", parsed.map((p) => p.ignored.length), [4, 4, 4]);
 }
 
 function checkIncident(c: Checks, arc: Arc): void {
@@ -201,6 +215,7 @@ export function selfCheck(fixtures: ProcedureFixture[], sources: SourceFile[] = 
   checkTraces(c, triageArc);
   checkDeterminism(c, [triage, incident]);
   checkFormatting(c);
+  checkInspector(c, triageArc);
   if (sources.length) checkPurity(c, sources);
 
   const passed = c.items.filter((a) => a.ok).length;
