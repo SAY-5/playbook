@@ -59,8 +59,17 @@ _STOPWORDS = {
     "get",
     "gets",
 }
-_DECISION_HINTS = ("if ", "when ", "unless ", "otherwise", "exception", "must", "always", " is ")
+_DECISION_HINTS = ("if ", "when ", "unless ", "otherwise", "exception", "must", "always")
 _FORBIDDEN_HINTS = ("never ", "do not ", "don't ", "must not ")
+# A priority matrix stated in prose: "sev1 is Highest, sev2 is High" or "full outage is Highest".
+_MATRIX_RE = re.compile(r"\b[\w-]+ is (?:highest|high|medium|low|lowest)\b")
+_CHANNEL_RE = re.compile(r"#[\w-]+")
+_POSTING_RE = re.compile(r"\b(?:post|posts|page|pages|announce|slack)\b")
+
+
+def _is_decision(low: str) -> bool:
+    """A sentence is a decision when it carries a conditional or states a priority matrix."""
+    return any(h in low for h in _DECISION_HINTS) or _MATRIX_RE.search(low) is not None
 
 
 def slugify(text: str) -> str:
@@ -146,12 +155,35 @@ def parse_sop(path: Path) -> Procedure:
     return proc
 
 
+def _step_text(step: Step) -> str:
+    return f"{step.title} {step.instruction} {step.tool or ''} " + " ".join(r.text for r in step.rules)
+
+
 def _best_step(proc: Procedure, sentence: str) -> str | None:
+    """The step a decision belongs to.
+
+    In order: the step whose own text names a channel the sentence names; for a priority matrix,
+    the step that sets the priority; for a sentence about posting or paging, the first step whose
+    tool is `slack.post`; otherwise the step with the largest keyword overlap.
+    """
+    low = sentence.lower()
+    channels = set(_CHANNEL_RE.findall(low))
+    if channels:
+        for step in proc.steps:
+            if channels & set(_CHANNEL_RE.findall(_step_text(step).lower())):
+                return step.id
+    if _MATRIX_RE.search(low):
+        for step in proc.steps:
+            if "priority" in _step_text(step).lower():
+                return step.id
+    if channels or _POSTING_RE.search(low):
+        for step in proc.steps:
+            if step.tool == "slack.post":
+                return step.id
     words = _tokens(sentence)
     best, best_score = None, 0
     for step in proc.steps:
-        haystack = f"{step.title} {step.instruction} {step.tool or ''} " + " ".join(r.text for r in step.rules)
-        score = len(words & _tokens(haystack))
+        score = len(words & _tokens(_step_text(step)))
         if score > best_score:
             best, best_score = step.id, score
     return best
@@ -161,7 +193,7 @@ def parse_walkthrough(path: Path, proc: Procedure) -> list[DecisionPoint]:
     """Pull decisions and prohibitions out of the expert's transcript lines.
 
     Only lines spoken by the expert are used; interviewer questions are ignored. Narrative
-    sentences that carry no conditional or prohibition are dropped.
+    sentences that carry no conditional, priority matrix or prohibition are dropped.
     """
     source = path.name
     found: list[DecisionPoint] = []
@@ -173,7 +205,7 @@ def parse_walkthrough(path: Path, proc: Procedure) -> list[DecisionPoint]:
             low = sentence.lower()
             if any(h in low for h in _FORBIDDEN_HINTS):
                 kind = "forbidden"
-            elif any(h in low for h in _DECISION_HINTS):
+            elif _is_decision(low):
                 kind = "decision"
             else:
                 continue

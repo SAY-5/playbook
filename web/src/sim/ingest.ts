@@ -9,8 +9,16 @@ const STOPWORDS = new Set([
   "be", "if", "when", "then", "we", "i", "you", "so", "at", "by", "from", "do", "not", "never", "always",
   "also", "one", "them", "they", "its", "their", "our", "get", "gets",
 ]);
-const DECISION_HINTS = ["if ", "when ", "unless ", "otherwise", "exception", "must", "always", " is "];
+const DECISION_HINTS = ["if ", "when ", "unless ", "otherwise", "exception", "must", "always"];
 const FORBIDDEN_HINTS = ["never ", "do not ", "don't ", "must not "];
+// A priority matrix stated in prose: "sev1 is Highest, sev2 is High" or "full outage is Highest".
+const MATRIX_RE = /\b[\w-]+ is (?:highest|high|medium|low|lowest)\b/;
+const CHANNEL_RE = /#[\w-]+/g;
+const POSTING_RE = /\b(?:post|posts|page|pages|announce|slack)\b/;
+
+function isDecision(low: string): boolean {
+  return DECISION_HINTS.some((h) => low.includes(h)) || MATRIX_RE.test(low);
+}
 
 export function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -99,13 +107,33 @@ export function parseSop(text: string, source = "sop.md"): Procedure {
   return proc;
 }
 
+function stepText(step: Step): string {
+  return `${step.title} ${step.instruction} ${step.tool ?? ""} ` + step.rules.map((r) => r.text).join(" ");
+}
+
+/* The step a decision belongs to: the step whose own text names a channel the sentence names; for
+   a priority matrix, the step that sets the priority; for a sentence about posting or paging, the
+   first step whose tool is slack.post; otherwise the step with the largest keyword overlap. */
 function bestStep(proc: Procedure, sentence: string): string | null {
+  const low = sentence.toLowerCase();
+  const channels = new Set(low.match(CHANNEL_RE) ?? []);
+  if (channels.size) {
+    for (const step of proc.steps) {
+      const named = stepText(step).toLowerCase().match(CHANNEL_RE) ?? [];
+      if (named.some((c) => channels.has(c))) return step.id;
+    }
+  }
+  if (MATRIX_RE.test(low)) {
+    for (const step of proc.steps) if (stepText(step).toLowerCase().includes("priority")) return step.id;
+  }
+  if (channels.size || POSTING_RE.test(low)) {
+    for (const step of proc.steps) if (step.tool === "slack.post") return step.id;
+  }
   const words = tokens(sentence);
   let best: string | null = null;
   let bestScore = 0;
   for (const step of proc.steps) {
-    const hay = `${step.title} ${step.instruction} ${step.tool ?? ""} ` + step.rules.map((r) => r.text).join(" ");
-    const hayTokens = tokens(hay);
+    const hayTokens = tokens(stepText(step));
     let score = 0;
     for (const w of words) if (hayTokens.has(w)) score++;
     if (score > bestScore) {
@@ -125,7 +153,7 @@ export function parseWalkthrough(text: string, proc: Procedure, source = "walkth
       const low = sentence.toLowerCase();
       let kind: DecisionPoint["kind"];
       if (FORBIDDEN_HINTS.some((h) => low.includes(h))) kind = "forbidden";
-      else if (DECISION_HINTS.some((h) => low.includes(h))) kind = "decision";
+      else if (isDecision(low)) kind = "decision";
       else continue;
       found.push({
         id: `${kind[0]}${found.length + 1}`,

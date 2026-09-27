@@ -41,6 +41,27 @@ def test_walkthrough_decisions_cite_transcript_lines(triage_dir: Path):
     assert any("email or phone number" in d.text for d in forbidden)
     # interviewer questions never become decisions
     assert not any("Walk me through" in d.text for d in decisions)
+    # the enterprise exception is a priority matrix, so it belongs to the step that sets priority
+    bump = next(d for d in decisions if "bumped one level" in d.text)
+    assert bump.step_id == "create-ticket"
+    # a sentence about the Slack post belongs to the step that posts
+    post = next(d for d in decisions if d.text.startswith("The Slack post must name"))
+    assert post.step_id == "escalate"
+
+
+def test_narrative_sentences_are_not_decisions_and_channels_link_steps(incident_dir: Path):
+    proc = parse_sop(incident_dir / "sop.md")
+    decisions = parse_walkthrough(incident_dir / "walkthrough.md", proc)
+    texts = [d.text for d in decisions]
+    assert not any(t.startswith("I look up the owning channel") for t in texts)
+    assert not any(t.startswith("The title is the impact level") for t in texts)
+    matrix = next(d for d in decisions if "full outage is Highest" in d.text)
+    assert matrix.kind == "decision" and matrix.step_id == "open-incident"
+    paged = next(d for d in decisions if "#ic-oncall" in d.text)
+    assert paged.step_id == "announce"
+    status = next(d for d in decisions if "#status-updates" in d.text)
+    assert status.step_id == "public-status"
+    assert [d.kind for d in decisions] == ["decision", "decision", "forbidden", "decision", "decision", "forbidden"]
 
 
 def test_ingest_round_trips_through_json(incident_dir: Path, tmp_path: Path):
