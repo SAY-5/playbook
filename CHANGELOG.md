@@ -1,6 +1,6 @@
 # Changelog
 
-## v6.0.0 (unreleased)
+## v6.0.0 (2026-09-27)
 
 Breaking: the run store lays every artifact out under one root keyed by the procedure slug
 (`<slug>/prompts`, `reports`, `traces`, `grades`, `bank.json`, `proposals`, `promotions`), on disk
