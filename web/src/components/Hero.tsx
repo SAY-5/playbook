@@ -28,7 +28,8 @@ export function Hero({ arc, runs }: HeroProps) {
           <span className="chip">no API key</span>
         </p>
         <h1 className="hero__title" id="hero-title">
-          An expert&rsquo;s procedure, compiled into an agent that <em>grades itself</em>.
+          An expert&rsquo;s procedure, compiled into an agent that is{" "}
+          <em>graded against the expert&rsquo;s own rubric</em> and corrected from its failures.
         </h1>
         <p className="hero__lede">
           Playbook parses a standard operating procedure and a walkthrough into a cited{" "}
