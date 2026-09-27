@@ -13,7 +13,8 @@ and in S3 alike. Runs directories written by earlier versions are not read.
   procedure with no promoted version.
 - `make lambda-zip` resolves the bundle for the Lambda platform (x86_64 manylinux, python 3.12)
   from `uv.lock` on any host; `make lambda-check` imports it under that platform in Docker, and CI
-  imports it on ubuntu.
+  imports it on ubuntu. The function declares `architectures = ["x86_64"]` rather than relying on
+  the AWS default, so a change of default cannot leave it with a bundle it cannot load.
 - `serve-fakes --host` binds a chosen address; the compose fakes service binds `0.0.0.0` so its
   published ports work.
 - Live mode requires `JIRA_BASE_URL`, `JIRA_TOKEN` and `SLACK_TOKEN` unless `PLAYBOOK_TOOLS=fake`
@@ -32,10 +33,13 @@ and in S3 alike. Runs directories written by earlier versions are not read.
 - `make demo-review` runs the promotion gate, the audit trail, the scenario bank and both
   regression runs on the output of `make demo`, so every figure in the README has a command
   behind it.
-- Browser demo: the fonts are served with the page, the rubrics and scenario sets are parsed at
-  build time, and framer-motion and `yaml` are gone from the bundle, which halves its JavaScript
-  (449.19 kB to 227.58 kB, 144.20 kB to 73.29 kB gzipped). Section reveals are CSS driven by one
-  IntersectionObserver hook, so `prefers-reduced-motion` is honoured everywhere on the page.
+- Browser demo: the fonts are served with the page, and both faces are under the SIL Open Font
+  License 1.1 with the license text committed beside them; the display face is the latin subset of
+  Space Grotesk. The rubrics and scenario sets are parsed at build time, and framer-motion and
+  `yaml` are gone from the bundle, which halves its JavaScript: 227.58 kB against 449.19 kB
+  measured at 9405f90, the last commit on this branch that still bundled them (73.29 kB against
+  144.20 kB gzipped). Section reveals are CSS driven by one IntersectionObserver hook, so
+  `prefers-reduced-motion` is honoured everywhere on the page.
 - Browser demo: the transcript has a second rail tab listing the rules the stand-in parsed out of
   each prompt version with their conditions, the correction that added each one, and the prose it
   ignored; percentages are rounded the way Python rounds them, checked against a generated table.
