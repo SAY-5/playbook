@@ -12,13 +12,8 @@ if [ ! -d "$RUNS/support-triage/prompts" ]; then
   exit 1
 fi
 
-uv run playbook serve-fakes >/dev/null 2>&1 &
-FAKES_PID=$!
-trap 'kill $FAKES_PID 2>/dev/null || true' EXIT
-for _ in $(seq 1 50); do
-  curl -sf http://127.0.0.1:8801/health >/dev/null 2>&1 && break
-  sleep 0.2
-done
+. scripts/_fakes.sh
+start_fakes
 
 echo "== mode: offline (deterministic local Messages API stand-in; no live API calls) =="
 echo
@@ -38,8 +33,11 @@ echo "== regress the latest version =="
 uv run playbook regress $PROC
 echo
 echo "== a reviewer-authored bad rule becomes the next version =="
-uv run playbook review propose $PROC --step set-state --text 'When severity is sev3, transition to "Done".' --as dana
-uv run playbook review approve $PROC p3-01 --as dana --note "deliberately wrong, to show the guard"
+PROPOSED=$(uv run playbook review propose $PROC --step set-state \
+  --text 'When severity is sev3, transition to "Done".' --as dana)
+echo "$PROPOSED"
+PROPOSAL=$(echo "$PROPOSED" | awk 'NR == 1 {print $1}')
+uv run playbook review approve $PROC "$PROPOSAL" --as dana --note "deliberately wrong, to show the guard"
 uv run playbook improve $PROC
 echo
 echo "== regress the new version (the guard is expected to fail) =="

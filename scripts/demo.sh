@@ -7,13 +7,8 @@ RUNS="${RUNS:-runs}/demo"
 export PLAYBOOK_RUNS_DIR="$RUNS"
 rm -rf "$RUNS"
 
-uv run playbook serve-fakes >/dev/null 2>&1 &
-FAKES_PID=$!
-trap 'kill $FAKES_PID 2>/dev/null || true' EXIT
-for _ in $(seq 1 50); do
-  curl -sf http://127.0.0.1:8801/health >/dev/null 2>&1 && break
-  sleep 0.2
-done
+. scripts/_fakes.sh
+start_fakes
 
 echo "== mode: offline (deterministic local Messages API stand-in; no live API calls) =="
 for proc in procedures/support_triage procedures/incident_comms; do
