@@ -36,10 +36,9 @@ and in S3 alike. Runs directories written by earlier versions are not read.
 - Browser demo: the fonts are served with the page, and both faces are under the SIL Open Font
   License 1.1 with the license text committed beside them; the display face is the latin subset of
   Space Grotesk. The rubrics and scenario sets are parsed at build time, and framer-motion and
-  `yaml` are gone from the bundle, which halves its JavaScript: 227.58 kB against 449.19 kB
-  measured at 9405f90, the last commit on this branch that still bundled them (73.29 kB against
-  144.20 kB gzipped). Section reveals are CSS driven by one IntersectionObserver hook, so
-  `prefers-reduced-motion` is honoured everywhere on the page.
+  `yaml` are gone from the bundle, which halves its JavaScript: 227.58 kB (73.29 kB gzipped)
+  against 444.72 kB (142.04 kB gzipped) for 5.0.0. Section reveals are CSS driven by one
+  IntersectionObserver hook, so `prefers-reduced-motion` is honoured everywhere on the page.
 - Browser demo: the transcript has a second rail tab listing the rules the stand-in parsed out of
   each prompt version with their conditions, the correction that added each one, and the prose it
   ignored; percentages are rounded the way Python rounds them, checked against a generated table.
