@@ -13,6 +13,7 @@ from pathlib import Path
 import click
 import httpx
 
+from playbook.agent.prompt import Correction
 from playbook.agent.store import make_store
 from playbook.config import FAKE_JIRA_PORT, FAKE_MODEL_PORT, FAKE_SLACK_PORT, Settings
 from playbook.evals.bank import ScenarioBank, format_bank
@@ -284,6 +285,32 @@ def edit(
 def reject(procedure_dir: Path, proposal_id: str, note: str, reviewer: str | None, runs_dir: Path | None) -> None:
     """Reject a proposal; it never enters a prompt."""
     _decide(procedure_dir, runs_dir, proposal_id, "rejected", reviewer, note=note)
+
+
+@review.command(name="propose")
+@_procedure_arg
+@click.option("--step", "step_id", required=True, help="SOP step id the rule is appended to.")
+@click.option("--text", required=True, help="The rule text, in the same grammar as a derived correction.")
+@click.option("--version", "version", type=int, default=None, help="Source version (default latest).")
+@_reviewer_opt
+@_runs_opt
+def review_propose(
+    procedure_dir: Path, step_id: str, text: str, version: int | None, reviewer: str | None, runs_dir: Path | None
+) -> None:
+    """Record a reviewer-authored rule as a pending proposal; approve it and `improve` applies it."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    spec = ws.prompt(version)
+    try:
+        ws.procedure().step(step_id)
+    except KeyError as exc:
+        raise click.ClickException(f"unknown step {step_id}") from exc
+    who = _reviewer(reviewer)
+    correction = Correction(step_id, text.strip(), "reviewer", spec.version, evidence=f"proposed by {who}")
+    added = ReviewQueue(ws.store, ws.slug).propose([correction], spec.version)
+    if not added:
+        raise click.ClickException(f"an identical proposal already exists for {spec.label}")
+    _print_proposals(added)
 
 
 @review.command(name="report")
