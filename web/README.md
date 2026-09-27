@@ -53,8 +53,11 @@ page runs the same assertions except the three that scan the module sources, so 
 `npm run smoke` serves `dist/` with `vite preview` and drives it in the Chrome installed on the
 machine through playwright-core: it fails on a console error, a page error, a request to any other
 origin, horizontal overflow at 1440 or 390 px, or a self-check that does not come back green, and
-it writes `docs/desktop.png` and `docs/mobile.png`. The two committed screenshots are that output,
-recompressed losslessly, so running the test again leaves a diff of the same picture.
+it writes `docs/desktop.png` and `docs/mobile.png`. The two committed screenshots are that output
+recompressed with `oxipng -o max`, which rewrites the compressed stream as one IDAT chunk and
+changes no pixel: the raw capture and the committed file decode to the same RGB bytes, and a
+second `oxipng -o max` pass saves nothing on either committed file. Running the smoke test again
+therefore leaves a diff of the same picture.
 
 ## Sections
 
