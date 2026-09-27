@@ -482,7 +482,7 @@ def regress(
         ws,
         "regress",
         runner,
-        [],
+        [result.version_report(runner.rubric)],
         regression={
             "version": result.prompt_version,
             "replayed": len(result.outcomes),

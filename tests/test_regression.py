@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -128,8 +129,21 @@ def test_cli_regress_fails_the_run_on_a_regression(settings: Settings, triage_di
     cli = CliRunner()
     assert cli.invoke(main, ["eval", str(triage_dir), *where]).exit_code == 0
 
+    # A reviewer proposes the bad rule; approving it and running improve makes it v2.
+    propose = ["review", "propose", str(triage_dir), *where, "--step", "set-state"]
+    r = cli.invoke(main, [*propose, "--text", BAD.text, "--as", "dana"])
+    assert r.exit_code == 0, r.output
+    assert "p1-" in r.output and "proposed by dana" in r.output
+    r = cli.invoke(main, ["review", "propose", str(triage_dir), *where, "--step", "nowhere", "--text", "x"])
+    assert r.exit_code != 0 and "unknown step nowhere" in r.output
+    listed = cli.invoke(main, ["review", "list", str(triage_dir), *where]).output
+    proposal_id = next(line.split()[0] for line in listed.splitlines() if BAD.text in line)
+    assert cli.invoke(main, ["review", "approve", str(triage_dir), *where, proposal_id, "--as", "dana"]).exit_code == 0
+    r = cli.invoke(main, ["improve", str(triage_dir), *where])
+    assert r.exit_code == 0, r.output
+    assert "created v2 with 1 approved correction(s)" in r.output and BAD.text in r.output
     ws = Workspace(triage_dir, runs)
-    ws.store.save_prompt(ws.prompt(1).with_corrections([BAD], notes="deliberate regression"))
+    assert [c.text for c in ws.prompt(2).corrections] == [BAD.text]
 
     r = cli.invoke(main, ["bank", str(triage_dir), *where])
     assert r.exit_code == 0, r.output
@@ -139,3 +153,7 @@ def test_cli_regress_fails_the_run_on_a_regression(settings: Settings, triage_di
     assert r.exit_code == 1
     assert "GUARD FAILED" in r.output and "broken: triage-10" in r.output
     assert "sev3              " in r.output
+    artifact = json.loads(next((runs / "support-triage" / "artifacts").glob("regress-*.json")).read_text())
+    assert artifact["regression"]["guard_passed"] is False and artifact["regression"]["broken"] == ["triage-10"]
+    assert [v["version"] for v in artifact["versions"]] == [2]
+    assert artifact["versions"][0]["scenarios"] == 4 and "triage-10" in artifact["versions"][0]["failing"]

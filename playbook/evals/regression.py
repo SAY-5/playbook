@@ -12,6 +12,9 @@ from dataclasses import dataclass, field
 
 from playbook.agent.prompt import PromptSpec
 from playbook.evals.bank import BankEntry, ScenarioBank
+from playbook.evals.grader import RunGrade
+from playbook.evals.report import VersionReport, build_report
+from playbook.evals.rubric import Rubric
 from playbook.runner import Runner
 
 
@@ -52,6 +55,11 @@ class RegressionReport:
     procedure_slug: str
     prompt_version: int
     outcomes: list[ScenarioOutcome] = field(default_factory=list)
+    grades: list[RunGrade] = field(default_factory=list)
+
+    def version_report(self, rubric: Rubric) -> VersionReport:
+        """The replayed version scored like an eval run, for the run artifact."""
+        return build_report(self.grades, rubric)
 
     @property
     def broken(self) -> list[str]:
@@ -116,7 +124,8 @@ def run_regression(
     entries = bank.select(tag=tag, failures_only=failures_only)
     if not entries:
         raise ValueError("no banked scenarios match the selection")
-    outcomes = []
+    outcomes: list[ScenarioOutcome] = []
+    grades: list[RunGrade] = []
     for entry in entries:
         trace = runner.run_scenario(spec, entry.scenario)
         grade = runner.grade(trace, entry.scenario)
@@ -125,7 +134,10 @@ def run_regression(
             f"  {spec.label} {entry.id}: {'pass' if grade.passed else 'FAIL'}{' REGRESSION' if outcome.broke else ''}"
         )
         outcomes.append(outcome)
-    return RegressionReport(procedure_slug=runner.procedure.slug, prompt_version=spec.version, outcomes=outcomes)
+        grades.append(grade)
+    return RegressionReport(
+        procedure_slug=runner.procedure.slug, prompt_version=spec.version, outcomes=outcomes, grades=grades
+    )
 
 
 def format_regression(report: RegressionReport) -> str:
