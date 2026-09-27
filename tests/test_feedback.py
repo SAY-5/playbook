@@ -63,6 +63,13 @@ def test_loop_keeps_every_version_and_stops_at_plateau(settings: Settings, incid
     assert "pass rate" in table and "status_updates_when_customer_facing" in table
 
 
+def test_loop_reports_all_pass_when_the_last_permitted_round_gets_there(settings: Settings, incident_dir: Path):
+    runner = _runner(settings, incident_dir)
+    result = run_loop(runner, runner.ws.prompt(), max_rounds=1)
+    assert [r.report.pass_rate for r in result.rounds] == [0.125, 1.0]
+    assert result.stop_reason == "all scenarios pass"
+
+
 def test_regression_comparison_flags_newly_failing(settings: Settings, triage_dir: Path):
     runner = _runner(settings, triage_dir)
     v1 = runner.ws.prompt()
