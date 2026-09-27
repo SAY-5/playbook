@@ -2,6 +2,7 @@
    results in the repository README, so a drift in the ported rule engine, grader or correction
    derivation fails here instead of silently changing the page. */
 import type { ProcedureFixture } from "../fixtures";
+import { PCT_CASES } from "../fixtures/pct-cases";
 import { arcDigest, arcRunIds, computeArc, type Arc } from "./arc";
 import { pct } from "./report";
 import type { RunTrace } from "./types";
@@ -151,6 +152,15 @@ function checkDeterminism(c: Checks, fixtures: ProcedureFixture[]): void {
   }
 }
 
+function checkFormatting(c: Checks): void {
+  const wrong = PCT_CASES.filter(([v, expected]) => pct(v) !== expected).map(([v, expected]) => `${v}: ${pct(v)} != ${expected}`);
+  c.ok(
+    `percent formatting matches Python on ${PCT_CASES.length} values`,
+    wrong.length === 0,
+    wrong.length ? wrong.join(", ") : `${PCT_CASES.length} values, ties included`,
+  );
+}
+
 const BANNED: [string, RegExp][] = [
   ["Math.random", /Math\.random/],
   ["wall-clock time", /Date\.now|new Date\(/],
@@ -190,6 +200,7 @@ export function selfCheck(fixtures: ProcedureFixture[], sources: SourceFile[] = 
   checkIncident(c, incidentArc);
   checkTraces(c, triageArc);
   checkDeterminism(c, [triage, incident]);
+  checkFormatting(c);
   if (sources.length) checkPurity(c, sources);
 
   const passed = c.items.filter((a) => a.ok).length;
