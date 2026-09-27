@@ -1,7 +1,6 @@
 /* Transcript viewer: one scenario, one prompt version, stepped through turn by turn. Every entry
    comes straight out of the RunTrace the loop produced, so the arguments and results shown are
    the ones the grader scored. */
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { scenarioIds, traceFor, type Arc } from "../sim/arc";
 import { condText, parsePrompt, type Directive } from "../sim/engine";
@@ -102,7 +101,6 @@ export interface TranscriptProps {
 }
 
 export function Transcript({ arc }: TranscriptProps) {
-  const reduced = useReducedMotion();
   const ids = useMemo(() => scenarioIds(arc), [arc]);
   const lastRound = arc.rounds.length - 1;
   const [scenario, setScenario] = useState(ids[0]);
@@ -253,18 +251,9 @@ export function Transcript({ arc }: TranscriptProps) {
             </span>
           </div>
           <div className="transcript__bodywrap">
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.pre
-                key={`${rail}-${scenario}-${round}-${index}`}
-                className="mono-block transcript__body"
-                initial={reduced ? false : { opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={reduced ? undefined : { opacity: 0, y: -8 }}
-                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              >
-                {current?.body}
-              </motion.pre>
-            </AnimatePresence>
+            <pre className="mono-block transcript__body" key={`${rail}-${scenario}-${round}-${index}`}>
+              {current?.body}
+            </pre>
           </div>
         </div>
       </div>

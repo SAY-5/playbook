@@ -2,7 +2,7 @@
    the value. The animated span is hidden from assistive technology; the section that owns the
    counters publishes the settled figures in a single polite live region instead. */
 import { useEffect, useRef, useState } from "react";
-import { useReducedMotion } from "framer-motion";
+import { useReducedMotion } from "../hooks/motion";
 
 export interface CounterProps {
   value: number;

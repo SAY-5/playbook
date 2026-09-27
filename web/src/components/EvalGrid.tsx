@@ -1,6 +1,5 @@
 /* Evaluation grid: every scenario against every prompt version, red to green. The focused column
    is the one the segmented control selects; the others stay legible but recede. */
-import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 import { verdict, type Arc } from "../sim/arc";
 import { pct } from "../sim/report";
@@ -11,7 +10,6 @@ export interface EvalGridProps {
 }
 
 export function EvalGrid({ arc }: EvalGridProps) {
-  const reduced = useReducedMotion();
   const [focus, setFocus] = useState(arc.rounds.length - 1);
   useEffect(() => setFocus(arc.rounds.length - 1), [arc]);
 
@@ -77,14 +75,9 @@ export function EvalGrid({ arc }: EvalGridProps) {
                     const isNew = i === focus && newlyPassing.has(sc.id);
                     return (
                       <td key={r.spec.version} className={i === focus ? "is-focus" : "is-dim"}>
-                        <motion.span
-                          className={`cell ${passed ? "cell--pass" : "cell--fail"}${isNew ? " cell--new" : ""}`}
-                          initial={false}
-                          animate={reduced ? { opacity: 1 } : { scale: i === focus ? 1 : 0.94, opacity: i === focus ? 1 : 0.5 }}
-                          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-                        >
+                        <span className={`cell ${passed ? "cell--pass" : "cell--fail"}${isNew ? " cell--new" : ""}`}>
                           {passed ? "pass" : "fail"}
-                        </motion.span>
+                        </span>
                       </td>
                     );
                   })}

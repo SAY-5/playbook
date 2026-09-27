@@ -389,9 +389,28 @@ table.tbl th {
   -webkit-overflow-scrolling: touch;
 }
 
+/* One reveal per section, switched on by the IntersectionObserver in hooks/motion.ts. */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.5s var(--ease),
+    transform 0.5s var(--ease);
+}
+
+.reveal--in {
+  opacity: 1;
+  transform: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .reveal {
+    opacity: 1;
+    transform: none;
   }
 
   *,
@@ -835,6 +854,14 @@ table.tbl th {
 .transcript__body {
   margin: 0;
   color: var(--ink-2);
+  animation: body-in 0.22s var(--ease) both;
+}
+
+@keyframes body-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
 }
 
 /* ---------------------------------------------------------------- eval grid */
@@ -885,6 +912,9 @@ table.grid th.is-focus {
 
 .cell {
   display: inline-block;
+  transition:
+    transform 0.28s var(--ease),
+    opacity 0.28s var(--ease);
   min-width: 3.4rem;
   text-align: center;
   padding: 0.2rem 0.5rem;
@@ -907,6 +937,12 @@ table.grid th.is-focus {
 
 .cell--new {
   box-shadow: 0 0 0 2px rgba(179, 157, 255, 0.45);
+}
+
+/* Columns other than the focused one recede rather than disappear. */
+td.is-dim .cell {
+  transform: scale(0.94);
+  opacity: 0.5;
 }
 
 /* ---------------------------------------------------------------- corrections */
