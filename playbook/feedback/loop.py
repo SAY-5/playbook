@@ -56,7 +56,7 @@ def improve_once(
     new = spec.with_corrections([p.to_correction() for p in approved], notes=notes)
     if len(new.corrections) == len(spec.corrections):
         return None
-    new.save(runner.ws.prompts_dir)
+    runner.store.save_prompt(new)
     queue.mark_applied(approved, new.version)
     return new
 
@@ -69,13 +69,17 @@ def run_loop(
     min_delta: float = 0.0,
     reviewer: str | None = AUTO_REVIEWER,
 ) -> LoopResult:
-    """Iterate versions. With `reviewer=None` the loop stops as soon as proposals await an expert."""
+    """Iterate versions. With `reviewer=None` the loop stops as soon as proposals await an expert.
+
+    The loop stops when every scenario passes (also when the last permitted round gets there), when
+    no correction applies, when a round lifts nothing (no scenario newly passes and the pass rate
+    does not rise by more than `min_delta`), or when the round limit is hit.
+    """
     runner.reset_fakes()
     runner.log(f"running {start.label}")
     spec = start
     report = runner.run_version(spec)
     rounds = [Round(spec=spec, report=report)]
-    reason = "max rounds reached"
     queue = ReviewQueue(runner.store, runner.procedure.slug)
     for _ in range(max_rounds):
         if report.pass_rate >= 1.0:
@@ -96,7 +100,9 @@ def run_loop(
         comparison = compare(report, new_report)
         rounds.append(Round(spec=new, report=new_report, corrections=added, comparison=comparison))
         spec, report = new, new_report
-        if comparison.pass_rate_delta <= min_delta:
+        if comparison.pass_rate_delta <= min_delta and not comparison.newly_passing:
             reason = f"pass rate plateaued at {report.pass_rate:.0%}"
             break
+    else:
+        reason = "all scenarios pass" if report.pass_rate >= 1.0 else "max rounds reached"
     return LoopResult(rounds=rounds, stop_reason=reason)

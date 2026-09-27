@@ -57,5 +57,5 @@ class SlackApp:
         raise KeyError(path)
 
 
-def serve(port: int) -> FakeServer:
-    return FakeServer(SlackApp(), port).start()
+def serve(port: int, host: str = "127.0.0.1") -> FakeServer:
+    return FakeServer(SlackApp(), port, host).start()

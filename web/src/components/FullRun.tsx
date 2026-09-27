@@ -1,8 +1,8 @@
 /* Full run: replay the log the loop produced for this procedure, then print the summary block and
    the self-check result. The arc itself is computed once when the page loads; pressing run
    streams the recorded log so the sequence is readable. */
-import { useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
+import { useReducedMotion } from "../hooks/motion";
 import { FIXTURES } from "../fixtures";
 import type { Arc } from "../sim/arc";
 import { pct } from "../sim/report";

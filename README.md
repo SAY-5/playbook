@@ -36,6 +36,10 @@ explicit corrections, and deploys the runner on AWS with Terraform.
 - **Regression safety** banks every scenario with its tags and per-version outcomes, replays the
   bank against a new version, and fails the run when a scenario that used to pass breaks. Pass
   rates are reported per tag.
+- **Storage**: every artifact a run produces (the parsed procedure, prompt versions, traces,
+  grades, reports, the scenario bank, proposals, promotions and the JSON run artifacts) is keyed
+  by the procedure's slug under one root, on disk or in S3, so `PLAYBOOK_RUN_STORE=s3` holds the
+  whole history and the deployed runner can load any version a reviewer promoted.
 - **Operations**: `playbook ops` summarises a runs directory (procedures, versions, pass rate
   history, open forbidden actions, last run and its duration, tool-call counts and latency), and
   every graded command writes a JSON artifact with the same figures.
@@ -50,7 +54,7 @@ No API key or AWS account is needed to run everything in this repository.
 | | offline (default) | `--live` |
 |---|---|---|
 | model | `fakes/model_server.py`: a deterministic stand-in that speaks the Messages API request and response shape, including `tool_use` and `tool_result` turns, used through the official `anthropic` SDK with `base_url` | Anthropic Messages API with `ANTHROPIC_API_KEY` |
-| Jira, Slack | `fakes/jira_server.py`, `fakes/slack_server.py` with inspectable inboxes | real APIs via `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_TOKEN` |
+| Jira, Slack | `fakes/jira_server.py`, `fakes/slack_server.py` with inspectable inboxes | real APIs via `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_TOKEN`, all three required unless `PLAYBOOK_TOOLS=fake` asks for the stand-ins |
 | judge | transparent heuristic | model-graded rationale |
 | run store | local disk, or S3 and DynamoDB on LocalStack | S3 and DynamoDB |
 
@@ -59,15 +63,19 @@ instructions phrased as explicit rules (`When severity is sev1, post to #oncall-
 the issue key.`). Prose it cannot parse is ignored, so prompt corrections genuinely change what
 the next run does. The grammar is documented in [ARCHITECTURE.md](ARCHITECTURE.md).
 
-All numbers below come from `make demo` in offline mode on this machine. No live run has been
-performed; the live path is exercised by `tests/test_live.py`, which is skipped without
-`ANTHROPIC_API_KEY`.
+All numbers below come from two offline runs on this machine, in this order: `make demo`, which
+produces the ingest output, the before/after tables, the correction lists, the inbox evidence and
+the ops summary, and `make demo-review`, which reads that runs directory and produces the
+promotion gate, the audit trail, the scenario bank and both regression runs. The section that
+quotes each one says so. No live run has been performed; the live path is exercised by
+`tests/test_live.py`, which is skipped without `ANTHROPIC_API_KEY`.
 
 ## Quick start
 
 ```
 make setup        # uv sync, Python 3.12
 make demo         # offline: serve fakes, ingest, run 24 scenarios, grade, improve, print tables and ops
+make demo-review  # promotion gate, audit trail, bank and regression guard on that output
 make lint test tf-validate
 ```
 
@@ -171,40 +179,50 @@ rubric and corrections are the same in both modes.
 ### Browser demo
 
 `web/` is a static page that runs this same offline pipeline in the browser: the tool-calling
-loop, the rubric grader and the correction loop, with a transcript viewer, the evaluation grid
-and a replay of the whole arc. It is a port of the offline path rather than a recording, so
-`npm run selfcheck` in that directory reproduces the tables above from 47 assertions. See
-[web/README.md](web/README.md).
+loop, the rubric grader and the correction loop, with a transcript viewer that also lists the
+rules the stand-in parsed out of each prompt version, the evaluation grid and a replay of the
+whole arc. It is a port of the offline path rather than a recording, so `npm run selfcheck` in
+that directory reproduces the tables above from 51 assertions, 48 of which the page itself runs
+and displays. `npm run smoke` loads the built page in Chrome, fails on a console error, an
+off-origin request or horizontal overflow at 1440 and 390 px, and writes the two screenshots
+below. See [web/README.md](web/README.md).
+
+![The page at 1440 px](web/docs/desktop.png)
 
 ## CLI
 
 ```
 playbook ingest PROCEDURE_DIR                  parse sop.md and walkthrough.md, write procedure.json
 playbook run PROCEDURE_DIR [--scenario ID]     run the agent on the scenario set, store traces
-playbook eval PROCEDURE_DIR [--compare N]      run and grade a prompt version, print the report
+playbook eval PROCEDURE_DIR [--compare N] [--regrade]  grade a version, re-running it or its stored traces
 playbook improve PROCEDURE_DIR [--dry-run]     derive corrections from the last report, create vN+1
-playbook loop PROCEDURE_DIR [--max-rounds N]   run, grade, correct and re-run until plateau
+playbook loop PROCEDURE_DIR [--start-version N --max-rounds N]  run, grade, correct and re-run until plateau
 playbook review list|approve|edit|reject       decide the proposals derived from a version
+playbook review propose PROCEDURE_DIR --step ID --text RULE     queue a rule a reviewer wrote
 playbook review report|audit PROCEDURE_DIR     per-version review counts; the full decision trail
 playbook diff PROCEDURE_DIR [--from N --to M]  steps added, removed and changed between versions
 playbook promote PROCEDURE_DIR [--version N]   sign a version off, refused while the gate blocks
 playbook report PROCEDURE_DIR [--inbox]        before/after table from stored reports
 playbook ops [--runs-dir DIR]                  versions, pass rates, open forbidden actions, run cost
 playbook coverage PROCEDURE_DIR [--strict]     decision-branch and rubric coverage of the scenario set
-playbook synthesize PROCEDURE_DIR [--only-uncovered]  one scenario per walkthrough decision branch
+playbook synthesize PROCEDURE_DIR [--only-uncovered] [--out FILE]  one scenario per decision branch
 playbook bank PROCEDURE_DIR [--add FILE]       the scenario bank: every scenario, its tags, its outcomes
 playbook regress PROCEDURE_DIR [--tag T]       replay the bank against a version, guard the result
-playbook serve-fakes                           serve the offline model, Jira and Slack stand-ins
+playbook serve-fakes [--host ADDR]             serve the offline model, Jira and Slack stand-ins
 ```
 
-Every command accepts `--runs-dir` (or `PLAYBOOK_RUNS_DIR`); `run`, `eval`, `loop` and `regress`
-accept `--live`; `eval` and `coverage` accept `--scenarios FILE` to use another scenario set, for example
-the synthesized one. A procedure directory contains `sop.md`, `walkthrough.md`, `rubric.yaml`,
-`scenarios.yaml` and optionally `kb.json`; see `procedures/`.
+Every command except `serve-fakes` accepts `--runs-dir` (or `PLAYBOOK_RUNS_DIR`); `run`, `eval`,
+`loop` and `regress` accept `--live`; `eval` and `coverage` accept `--scenarios FILE` to use another
+scenario set, for example the synthesized one. A procedure directory contains `sop.md`,
+`walkthrough.md`, `rubric.yaml`, `scenarios.yaml` and optionally `kb.json`; see `procedures/`.
 
-Environment: `PLAYBOOK_MODEL`, `ANTHROPIC_API_KEY`, `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_TOKEN`,
-`PLAYBOOK_RUN_STORE=local|s3`, `PLAYBOOK_S3_BUCKET`, `PLAYBOOK_DDB_TABLE`, `AWS_ENDPOINT_URL`
-(LocalStack), `PLAYBOOK_MAX_STEPS`, `PLAYBOOK_REVIEWER`.
+Environment: `PLAYBOOK_MODEL`, `ANTHROPIC_API_KEY`, `JIRA_BASE_URL`, `JIRA_TOKEN`, `SLACK_BASE_URL`,
+`SLACK_TOKEN`, `PLAYBOOK_RUN_STORE=local|s3`, `PLAYBOOK_S3_BUCKET`, `PLAYBOOK_DDB_TABLE`,
+`AWS_ENDPOINT_URL` (LocalStack), `PLAYBOOK_MAX_STEPS`, `PLAYBOOK_REVIEWER`. A live run needs
+`JIRA_BASE_URL`, `JIRA_TOKEN` and `SLACK_TOKEN`; `PLAYBOOK_TOOLS=fake` asks for the local Jira and
+Slack stand-ins instead (`PLAYBOOK_FAKE_JIRA_URL`, `PLAYBOOK_FAKE_SLACK_URL` move them), which is
+how `tests/test_live.py` runs a live model against the fakes. Every trace records which hosts it
+used.
 
 ## Review and approval
 
@@ -225,16 +243,20 @@ support-triage v2 to v3: 0 step(s) added, 0 removed, 1 changed, 4 unchanged
   unchanged: kb-search, create-ticket, record-findings, set-state
 ```
 
+A reviewer can also write a rule of their own: `playbook review propose --step ID --text RULE`
+queues it in the same grammar as a derived correction, and `improve` applies it once approved.
+That is how `make demo-review` builds the deliberately wrong v4 further down.
+
 `playbook promote` signs a graded version off for use. The gate refuses while the version still
 commits a forbidden action or while proposals from it are undecided, and the refusal is recorded
-too:
+too (this block and the audit trail below come from `make demo-review`):
 
 ```
 $ playbook promote procedures/support_triage --version 1 --as dana
-v1 blocked by dana at 2026-09-10T08:51:52+00:00
+v1 blocked by dana at 2026-09-27T02:03:07+00:00
   blocked by forbidden-action: no_pii_in_slack in 2 scenario(s): triage-01, triage-03
 $ playbook promote procedures/support_triage --as dana --note "phone and email leaks cleared"
-v3 promoted by dana at 2026-09-10T08:51:53+00:00 (pass rate 100%, 0 forbidden action(s))
+v3 promoted by dana at 2026-09-27T02:03:07+00:00 (pass rate 100%, 0 forbidden action(s))
 ```
 
 `playbook review audit` prints every decision in order, corrections and versions together (4 of
@@ -242,10 +264,10 @@ the 14 lines of that run):
 
 ```
 support-triage audit trail: 14 decision(s) by auto, dana
-  2026-09-10T08:51:50+00:00  auto       approved  p1-01    [create-ticket] Set summary to "[{severity}] {title}". (applied in v2)
-  2026-09-10T08:51:51+00:00  auto       approved  p2-01    [escalate] When posting to Slack, do not include the customer phone number. (applied in v3)
-  2026-09-10T08:51:52+00:00  dana       blocked   v1       forbidden-action: no_pii_in_slack in 2 scenario(s): triage-01, triage-03
-  2026-09-10T08:51:53+00:00  dana       promoted  v3       pass rate 100% note: phone and email leaks cleared
+  2026-09-27T02:01:44+00:00  auto       approved  p1-01    [create-ticket] Set summary to "[{severity}] {title}". (applied in v2)
+  2026-09-27T02:01:45+00:00  auto       approved  p2-01    [escalate] When posting to Slack, do not include the customer phone number. (applied in v3)
+  2026-09-27T02:03:07+00:00  dana       blocked   v1       forbidden-action: no_pii_in_slack in 2 scenario(s): triage-01, triage-03
+  2026-09-27T02:03:07+00:00  dana       promoted  v3       pass rate 100% note: phone and email leaks cleared
 ```
 
 Proposals and promotions are stored with the runs, on disk or in S3 with a DynamoDB index.
@@ -262,7 +284,7 @@ incident communications), measured offline:
 
 ```
 support-triage coverage: 16 scenarios, 4 branching decisions, 11/11 branches covered (100.0%)
-  d2 [escalate] One exception: Enterprise accounts get bumped one level for sev2 and sev3, ... (walkthrough.md:8)
+  d2 [create-ticket] One exception: Enterprise accounts get bumped one level for sev2 and sev3, ... (walkthrough.md:8)
     ok  severity=sev2 and tier=enterprise                triage-05, triage-08
     ok  severity=sev3 and tier=enterprise                triage-09, triage-12
     ok  otherwise (severity=sev1 and tier=pro)           triage-01, triage-02, triage-03, triage-04 +8
@@ -271,7 +293,7 @@ criteria:
 flagged: none
 ```
 
-`playbook synthesize` writes `runs/<procedure>/scenarios.synth.yaml` with one new scenario per
+`playbook synthesize` writes `runs/<slug>/scenarios.synth.yaml` with one new scenario per
 branch (or per uncovered branch with `--only-uncovered`). Each takes the closest hand-written
 scenario as a template, writes the branch values into the intake, and infers expected outcomes
 from existing scenarios that share the criterion's condition variables. Outcomes nothing can
@@ -281,7 +303,7 @@ vouch for are left out and tagged `needs-expert:<key>` for the expert to confirm
 
 Scenario sets are edited: branches get synthesized, cases get retired, an incident becomes a test.
 `playbook bank` keeps every scenario a procedure has been run on, with its tags and how each
-version scored it, in `runs/<procedure>/bank.json`. It folds in `scenarios.yaml` and every stored
+version scored it, in `runs/<slug>/bank.json`. It folds in `scenarios.yaml` and every stored
 report on each call, and `--add FILE` merges another set, for example the synthesized one.
 
 ```
@@ -291,6 +313,9 @@ support-triage bank: 16 scenario(s), 11 tag(s), versions v1, v2, v3, 14 with a r
   sev3              4 scenario(s), 2 with a recorded failure
 historical failures: triage-01, triage-02, triage-03, triage-04, triage-05, triage-06, triage-07, triage-08, triage-09, triage-12, triage-13, triage-14, triage-15, triage-16
 ```
+
+`playbook bank` and `playbook regress` below are the `make demo-review` output on the runs
+directory `make demo` wrote.
 
 `playbook regress` replays the bank against a version and compares each scenario with the last
 version that scored it. A scenario that used to pass and now fails is a regression and fails the
@@ -310,8 +335,9 @@ per tag:
 guard passed
 ```
 
-Against a v4 carrying a deliberately bad correction (`When severity is sev3, transition to
-"Done".`), the guard exits non-zero and names what broke:
+`make demo-review` then has a reviewer propose a deliberately bad rule (`When severity is sev3,
+transition to "Done".`) on the `set-state` step, approves it and runs `improve`, which makes it
+v4. Replaying the bank against v4, the guard exits non-zero and names what broke:
 
 ```
 support-triage regression of v4: 16 replayed, pass rate 87.5%, 0 fixed, 2 broken, 0 new failing
@@ -331,35 +357,35 @@ are still open, which version is promoted, and what the runs cost. This is the t
 `make demo` the tables above come from:
 
 ```
-playbook ops at 2026-09-10T09:04:57+00:00: 2 procedure(s), 5 prompt version(s), 24 scenario(s), 0 open forbidden action(s), 64 run(s), 308 tool call(s)
+playbook ops at 2026-09-27T02:01:48+00:00: 2 procedure(s), 5 prompt version(s), 24 scenario(s), 0 open forbidden action(s), 64 run(s), 308 tool call(s)
 incident-communications
   versions: v1 v2 (latest v2, nothing promoted)
   pass rate: v1 12.5%, v2 100.0%
   open forbidden actions: 0
   pending proposals: 0
-  last run: inc-08 on v2 at 2026-09-10T09:04:56+00:00 in 24 ms
-  runs: 16, tool calls 86 (5.38 per run), tool latency mean 0.05 ms, p95 0 ms, max 2 ms
+  last run: inc-08 on v2 at 2026-09-27T02:01:47+00:00 in 25 ms
+  runs: 16, tool calls 86 (5.38 per run), tool latency mean 0.27 ms, p95 2 ms, max 5 ms
   tools: jira.comment 16, jira.create_issue 16, slack.lookup_channel 16, slack.post 38
 support-triage
   versions: v1 v2 v3 (latest v3, nothing promoted)
   pass rate: v1 12.5%, v2 87.5%, v3 100.0%
   open forbidden actions: 0
   pending proposals: 0
-  last run: triage-16 on v3 at 2026-09-10T09:04:55+00:00 in 17 ms
-  runs: 48, tool calls 222 (4.62 per run), tool latency mean 0.1 ms, p95 1 ms, max 5 ms
+  last run: triage-16 on v3 at 2026-09-27T02:01:45+00:00 in 16 ms
+  runs: 48, tool calls 222 (4.62 per run), tool latency mean 0.12 ms, p95 1 ms, max 3 ms
   tools: jira.comment 48, jira.create_issue 48, jira.transition 48, kb.search 48, slack.post 30
 ```
 
 `eval`, `loop` and `regress` each write a JSON artifact to
-`runs/<procedure>/artifacts/<command>-<timestamp>.json` holding the version scores, the failing
+`runs/<slug>/artifacts/<command>-<timestamp>.json` holding the version scores, the failing
 scenarios and the measured cost. From the same run, with the `versions` list abbreviated:
 
 ```json
 {
-  "artifact_id": "loop-20260910T090455",
+  "artifact_id": "loop-20260927T020145",
   "command": "loop",
   "procedure": "support-triage",
-  "written_at": "2026-09-10T09:04:55+00:00",
+  "written_at": "2026-09-27T02:01:45+00:00",
   "versions": [
     { "version": 2, "scenarios": 16, "passed": 14, "pass_rate": 0.875, "mean_score": 0.9886,
       "forbidden_violations": 2, "failing": ["triage-05", "triage-12"] },
@@ -369,35 +395,44 @@ scenarios and the measured cost. From the same run, with the `versions` list abb
   "metrics": {
     "runs": 48, "tool_calls": 222,
     "by_tool": { "jira.comment": 48, "jira.create_issue": 48, "jira.transition": 48, "kb.search": 48, "slack.post": 30 },
-    "calls_per_run": 4.62, "tool_ms_mean": 0.1, "tool_ms_p95": 1, "tool_ms_max": 5,
-    "run_ms_mean": 23.21, "run_ms_total": 1114
+    "calls_per_run": 4.62, "tool_ms_mean": 0.12, "tool_ms_p95": 1, "tool_ms_max": 3,
+    "run_ms_mean": 25.38, "run_ms_total": 1218
   },
   "stop_reason": "all scenarios pass"
 }
 ```
 
-Latency here is the offline stand-in on a laptop, so the interesting figures are the counts and
-their shape: 4.62 tool calls per run, and `slack.post` rising from one per run to two wherever the
-corrections added an escalation.
+The durations are the offline stand-in on one laptop under whatever else that laptop was doing,
+and they move from run to run; only the counts are stable. Those are the interesting figures
+anyway: 48 runs, 222 tool calls, 4.62 calls per run, and `slack.post` rising from one per run to
+two wherever the corrections added an escalation.
 
 ## AWS deployment
 
 ```
 make stack-up                       # LocalStack (set LOCALSTACK_PORT if 4566 is taken)
 make tf-apply-local                 # apply deploy/terraform against LocalStack
-make lambda-zip                     # build build/lambda with dependencies and procedures
+make lambda-zip                     # resolve build/lambda for x86_64 manylinux from uv.lock
+make lambda-check                   # import that bundle under linux/amd64 python 3.12 in Docker
 terraform -chdir=deploy/terraform apply -var lambda_source_dir=$PWD/build/lambda   # real AWS
 ```
+
+`make lambda-zip` resolves the dependencies for the Lambda platform rather than the host, so the
+bundle a macOS machine produces is the one the function runs; the `lambda-zip` job in CI imports
+it on ubuntu.
 
 The stack creates `playbook-<env>-artifacts` (S3, versioned, encrypted, private),
 `playbook-<env>-runs` and its dead-letter queue (SQS), `playbook-<env>-run-index` (DynamoDB,
 `pk`/`sk`), the `playbook-<env>/api-keys` secret (values set out of band) and the
 `playbook-<env>-runner` Lambda consuming the queue one message at a time. A message is
-`{"procedure": "support_triage", "scenario_id": "triage-01", "prompt_version": 3}`; the handler
-loads the secret into the environment, runs the scenario live, grades it and writes the trace to
-S3 with an index item. `terraform fmt`, `validate` and `apply` against LocalStack are part of the
-local checks. `deploy/docker-compose.yml` runs LocalStack and the fakes; the `Dockerfile` is a
-multi-stage build that runs as a non-root user.
+`{"procedure": "support_triage", "scenario_id": "triage-01", "prompt_version": 3}`, and
+`prompt_version` may be left out, in which case the handler runs the promoted version and refuses
+the message when nothing is promoted. It loads the secret into the environment, loads that prompt
+version from the run store, runs the scenario live, grades it and writes the trace and the grade
+to S3 with an index item. `terraform fmt`, `validate` and `apply` against LocalStack are part of
+the local checks. `deploy/docker-compose.yml` runs LocalStack and the fakes, which bind `0.0.0.0`
+inside the container so their published ports work; the `Dockerfile` installs from `uv.lock` and
+runs as a non-root user.
 
 ## Layout
 
@@ -410,6 +445,8 @@ playbook/ops.py      runs-directory summary, run metrics, JSON run artifacts
 playbook/cli.py      the playbook command
 fakes/               offline Messages API, Jira and Slack stand-ins
 procedures/          two sample procedures with rubrics and scenario sets
+scripts/             demo.sh and demo-review.sh, the runs behind the numbers above
+web/                 the browser port of the offline path, its self-check and its smoke test
 deploy/terraform     AWS stack; deploy/lambda the runner handler; deploy/docker-compose.yml
 tests/               pytest suite (offline; LocalStack and live tests skip unless configured)
 ```

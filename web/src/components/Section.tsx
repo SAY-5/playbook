@@ -1,6 +1,6 @@
 /* Section shell: a numbered landmark with a title, a lede and one scroll-triggered reveal. */
-import { motion } from "framer-motion";
 import type { ReactNode } from "react";
+import { useReveal } from "../hooks/motion";
 
 export interface SectionProps {
   id: string;
@@ -12,6 +12,8 @@ export interface SectionProps {
 }
 
 export function Section({ id, num, title, lede, aside, children }: SectionProps) {
+  const [ref, seen] = useReveal<HTMLDivElement>();
+
   return (
     <section className="section" id={id} aria-labelledby={`${id}-title`}>
       <div className="wrap">
@@ -27,14 +29,9 @@ export function Section({ id, num, title, lede, aside, children }: SectionProps)
           </div>
           <p className="section__lede">{lede}</p>
         </div>
-        <motion.div
-          initial={{ opacity: 0, y: 18 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, amount: 0.12 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        >
+        <div className={`reveal${seen ? " reveal--in" : ""}`} ref={ref}>
           {children}
-        </motion.div>
+        </div>
       </div>
     </section>
   );

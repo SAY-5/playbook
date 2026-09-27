@@ -7,6 +7,7 @@ import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import anthropic
 
@@ -53,6 +54,7 @@ class RunTrace:
     final_text: str = ""
     status: str = "running"
     error: str | None = None
+    tool_endpoints: dict[str, str] = field(default_factory=dict)
 
     @property
     def tool_ms(self) -> int:
@@ -85,6 +87,15 @@ def _text_of(content: list[Any]) -> str:
     return "".join(getattr(b, "text", "") for b in content if getattr(b, "type", "") == "text")
 
 
+def _host(url: str) -> str:
+    return urlsplit(url).netloc or url
+
+
+def tool_endpoints(settings: Settings) -> dict[str, str]:
+    """Which Jira and Slack a run talked to, kept on the trace so a live run says what it used."""
+    return {"kind": settings.tools, "jira": _host(settings.jira_base_url), "slack": _host(settings.slack_base_url)}
+
+
 def run_agent(
     settings: Settings,
     system_prompt: str,
@@ -108,6 +119,7 @@ def run_agent(
         system_prompt=system_prompt,
         user_message=user_message,
         started_at=datetime.now(UTC).isoformat(timespec="seconds"),
+        tool_endpoints=tool_endpoints(settings),
     )
     messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
     run_started = time.perf_counter()

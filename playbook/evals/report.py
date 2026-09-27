@@ -1,10 +1,11 @@
-"""Per-version scoring reports and before/after regression comparison."""
+"""Per-version scoring reports and before/after regression comparison.
+
+Reports are persisted by the run store (`playbook.agent.store`) as `<slug>/reports/vN.json`.
+"""
 
 from __future__ import annotations
 
-import json
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
 from typing import Any
 
 from playbook.evals.grader import RunGrade
@@ -35,16 +36,6 @@ class VersionReport:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> VersionReport:
         return cls(**{**d, "grades": [RunGrade.from_dict(g) for g in d.get("grades", [])]})
-
-    def save(self, reports_dir: Path) -> Path:
-        reports_dir.mkdir(parents=True, exist_ok=True)
-        path = reports_dir / f"{self.label}.json"
-        path.write_text(json.dumps(self.to_dict(), indent=2) + "\n")
-        return path
-
-    @classmethod
-    def load(cls, reports_dir: Path, version: int) -> VersionReport:
-        return cls.from_dict(json.loads((reports_dir / f"v{version}.json").read_text()))
 
 
 def build_report(grades: list[RunGrade], rubric: Rubric) -> VersionReport:

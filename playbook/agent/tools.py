@@ -121,6 +121,9 @@ class ToolExecutor:
         self.kb = kb
         self.http = client or httpx.Client(timeout=15.0)
 
+    def close(self) -> None:
+        self.http.close()
+
     def _jira(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         headers = {"Authorization": f"Bearer {self.settings.jira_token}"}
         r = self.http.request(method, self.settings.jira_base_url + path, json=body, headers=headers)

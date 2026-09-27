@@ -132,7 +132,7 @@ def test_cli_coverage_and_synthesize(settings: Settings, incident_dir: Path, tmp
     assert "8/8 branches covered" in r.output and "flagged: none" in r.output
     r = cli.invoke(main, ["synthesize", str(incident_dir), "--runs-dir", str(runs)])
     assert r.exit_code == 0, r.output
-    out = runs / "incident_comms" / "scenarios.synth.yaml"
+    out = runs / "incident-communications" / "scenarios.synth.yaml"
     assert "8 scenario(s) synthesized" in r.output and out.exists()
     small = tmp_path / "small.yaml"
     full = ScenarioSet.load(incident_dir / "scenarios.yaml")

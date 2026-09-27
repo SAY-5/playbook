@@ -1,5 +1,6 @@
-/* Port of playbook/evals/scenarios.py and playbook/evals/rubric.py: YAML scenario sets and rubrics. */
-import YAML from "yaml";
+/* Port of playbook/evals/scenarios.py and playbook/evals/rubric.py: scenario sets and rubrics.
+   The YAML is parsed before it gets here: by the Vite plugin for the page, by the `yaml` package
+   for the node self-check. */
 import type { Criterion, CriterionKind, Rubric, Scenario, ScenarioSet } from "./types";
 
 const CRITERION_KINDS: CriterionKind[] = [
@@ -21,8 +22,8 @@ function asRecord(v: unknown): Raw {
   return v && typeof v === "object" ? (v as Raw) : {};
 }
 
-export function loadScenarios(yamlText: string): ScenarioSet {
-  const data = asRecord(YAML.parse(yamlText));
+export function loadScenarios(parsed: unknown): ScenarioSet {
+  const data = asRecord(parsed);
   const list = (data.scenarios as Raw[]) ?? [];
   const scenarios: Scenario[] = list.map((s) => {
     const intake: Record<string, string> = {};
@@ -75,8 +76,8 @@ export function getScenario(set: ScenarioSet, id: string): Scenario {
   return sc;
 }
 
-export function loadRubric(yamlText: string): Rubric {
-  const data = asRecord(YAML.parse(yamlText));
+export function loadRubric(parsed: unknown): Rubric {
+  const data = asRecord(parsed);
   const criteria: Criterion[] = ((data.criteria as Raw[]) ?? []).map((c) => {
     const kind = String(c.kind) as CriterionKind;
     if (!CRITERION_KINDS.includes(kind)) throw new Error(`unknown criterion kind ${kind} in ${String(c.id)}`);

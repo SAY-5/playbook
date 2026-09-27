@@ -87,7 +87,8 @@ class PromotionLog:
         return sorted(items, key=lambda p: (p.at, p.id))
 
     def current(self) -> int | None:
-        """The highest version that was promoted and not superseded by a later block."""
+        """The highest version ever promoted; a later blocked attempt on another version does not
+        withdraw it."""
         promoted = [p.version for p in self.all() if p.promoted]
         return max(promoted) if promoted else None
 

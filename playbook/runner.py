@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -10,31 +11,38 @@ import httpx
 
 from playbook.agent.loop import RunTrace, make_client, run_agent
 from playbook.agent.prompt import PromptSpec
-from playbook.agent.store import RunStore, make_store
+from playbook.agent.store import LocalRunStore, RunStore
 from playbook.agent.tools import KnowledgeBase, ToolExecutor
 from playbook.config import Settings
+from playbook.evals.bank import ScenarioBank
 from playbook.evals.grader import Grader, RunGrade
 from playbook.evals.judge import Judge, LiveJudge, OfflineJudge
 from playbook.evals.report import VersionReport, build_report
 from playbook.evals.rubric import Rubric
 from playbook.evals.scenarios import Scenario, ScenarioSet
 from playbook.ingest import Procedure, ingest_procedure, load_procedure
-from playbook.ingest.parser import write_procedure
+from playbook.ingest.parser import procedure_slug, write_procedure
 
 
 @dataclass
 class Workspace:
-    """Where a procedure's inputs live and where its versions, runs and reports go."""
+    """Where a procedure's inputs live, the store its versions, runs and reports go to, and the
+    local directory (`<runs_dir>/<slug>`) that keeps the ingested procedure and the run artifacts."""
 
     procedure_dir: Path
     runs_dir: Path
+    store: RunStore | None = None
 
-    @property
+    def __post_init__(self) -> None:
+        if self.store is None:
+            self.store = LocalRunStore(self.runs_dir)
+
+    @cached_property
     def slug(self) -> str:
-        return self.procedure().slug
+        return procedure_slug(self.procedure_dir)
 
     def procedure(self) -> Procedure:
-        cached = self.runs_dir / self.procedure_dir.name / "procedure.json"
+        cached = self.out_dir / "procedure.json"
         return load_procedure(cached) if cached.exists() else ingest_procedure(self.procedure_dir)
 
     def ingest(self) -> tuple[Procedure, Path]:
@@ -43,19 +51,7 @@ class Workspace:
 
     @property
     def out_dir(self) -> Path:
-        return self.runs_dir / self.procedure_dir.name
-
-    @property
-    def prompts_dir(self) -> Path:
-        return self.out_dir / "prompts"
-
-    @property
-    def reports_dir(self) -> Path:
-        return self.out_dir / "reports"
-
-    @property
-    def bank_path(self) -> Path:
-        return self.out_dir / "bank.json"
+        return self.runs_dir / self.slug
 
     @property
     def artifacts_dir(self) -> Path:
@@ -71,13 +67,28 @@ class Workspace:
         return KnowledgeBase.from_file(self.procedure_dir / "kb.json")
 
     def prompt(self, version: int | None = None) -> PromptSpec:
+        """A stored prompt version; with no version the latest, creating v1 when none exists."""
+        assert self.store is not None
         if version is not None:
-            return PromptSpec.load(self.prompts_dir, version)
-        latest = PromptSpec.latest(self.prompts_dir)
-        if latest is None:
-            latest = PromptSpec(procedure_slug=self.slug)
-            latest.save(self.prompts_dir)
-        return latest
+            return self.store.load_prompt(self.slug, version)
+        versions = self.store.prompt_versions(self.slug)
+        if versions:
+            return self.store.load_prompt(self.slug, versions[-1])
+        spec = PromptSpec(procedure_slug=self.slug)
+        self.store.save_prompt(spec)
+        return spec
+
+    def report(self, version: int) -> VersionReport:
+        assert self.store is not None
+        return self.store.load_report(self.slug, version)
+
+    def report_versions(self) -> list[int]:
+        assert self.store is not None
+        return self.store.report_versions(self.slug)
+
+    def bank(self) -> ScenarioBank:
+        assert self.store is not None
+        return self.store.load_bank(self.slug)
 
 
 class Runner:
@@ -86,14 +97,14 @@ class Runner:
         settings: Settings,
         ws: Workspace,
         *,
-        store: RunStore | None = None,
         judge: Judge | None = None,
         client: Any | None = None,
         log=None,
     ):
+        assert ws.store is not None
         self.settings = settings
         self.ws = ws
-        self.store = store or make_store(settings)
+        self.store: RunStore = ws.store
         self.client = client or make_client(settings)
         self.judge = judge or (LiveJudge(self.client, settings.model) if settings.live else OfflineJudge())
         self.procedure = ws.procedure()
@@ -101,6 +112,10 @@ class Runner:
         self.executor = ToolExecutor(settings, ws.kb())
         self.log = log or (lambda msg: None)
         self.traces: list[RunTrace] = []
+
+    def close(self) -> None:
+        """Release the HTTP client the tool executor holds."""
+        self.executor.close()
 
     def reset_fakes(self) -> None:
         """Clear the fake Jira and Slack inboxes between versions (offline mode only)."""
@@ -128,7 +143,10 @@ class Runner:
         return trace
 
     def grade(self, trace: RunTrace, scenario: Scenario) -> RunGrade:
-        return Grader(self.rubric, self.judge).grade(trace, scenario)
+        """Grade a trace and store the grade next to it."""
+        grade = Grader(self.rubric, self.judge).grade(trace, scenario)
+        self.store.save_grade(grade)
+        return grade
 
     def run_version(self, spec: PromptSpec, scenarios: ScenarioSet | None = None) -> VersionReport:
         scenarios = scenarios or self.ws.scenarios()
@@ -142,7 +160,7 @@ class Runner:
                 f"score={grade.score:.2f} calls={len(trace.tool_calls)}"
             )
         report = build_report(grades, self.rubric)
-        report.save(self.ws.reports_dir)
+        self.store.save_report(report)
         return report
 
     def regrade_version(self, version: int) -> VersionReport:
@@ -152,5 +170,5 @@ class Runner:
         self.traces.extend(traces)
         grades = [self.grade(t, scenarios.get(t.scenario_id)) for t in traces]
         report = build_report(grades, self.rubric)
-        report.save(self.ws.reports_dir)
+        self.store.save_report(report)
         return report

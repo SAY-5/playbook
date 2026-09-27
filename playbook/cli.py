@@ -13,6 +13,7 @@ from pathlib import Path
 import click
 import httpx
 
+from playbook.agent.prompt import Correction
 from playbook.agent.store import make_store
 from playbook.config import FAKE_JIRA_PORT, FAKE_MODEL_PORT, FAKE_SLACK_PORT, Settings
 from playbook.evals.bank import ScenarioBank, format_bank
@@ -68,7 +69,7 @@ def _settings(live: bool, runs_dir: Path | None) -> Settings:
 
 
 def _workspace(procedure_dir: Path, settings: Settings) -> Workspace:
-    ws = Workspace(procedure_dir, settings.runs_dir)
+    ws = Workspace(procedure_dir, settings.runs_dir, make_store(settings))
     if not (ws.out_dir / "procedure.json").exists():
         ws.ingest()
     return ws
@@ -129,6 +130,7 @@ def run(
         click.echo(f"{spec.label} {sc.id}: {trace.status}, {len(trace.tool_calls)} tool calls")
         for c in trace.tool_calls:
             click.echo(f"    {c.name} {json.dumps(c.args)[:110]}")
+    runner.close()
 
 
 @main.command(name="eval")
@@ -160,7 +162,7 @@ def eval_cmd(
         report = runner.run_version(spec, ScenarioSet.load(scenarios_path) if scenarios_path else None)
     reports = [report]
     if compare_to is not None:
-        before = VersionReport.load(ws.reports_dir, compare_to)
+        before = ws.report(compare_to)
         reports.insert(0, before)
         cmp_ = compare(before, report)
         click.echo(f"newly passing: {cmp_.newly_passing or '-'}; newly failing: {cmp_.newly_failing or '-'}")
@@ -170,6 +172,7 @@ def eval_cmd(
             failed = ", ".join(f"{r.id} ({r.rationale})" for r in g.failed())
             click.echo(f"  FAIL {g.scenario_id}: {failed}")
     _artifact(ws, "eval", runner, [report])
+    runner.close()
 
 
 @main.command()
@@ -183,10 +186,9 @@ def improve(procedure_dir: Path, version: int | None, dry_run: bool, auto_approv
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
     spec = ws.prompt(version)
-    report_path = ws.reports_dir / f"{spec.label}.json"
-    if not report_path.exists():
+    if spec.version not in ws.report_versions():
         raise click.ClickException(f"no report for {spec.label}; run `playbook eval` first")
-    report = VersionReport.load(ws.reports_dir, spec.version)
+    report = ws.report(spec.version)
     if dry_run:
         for c in derive_corrections(report.grades, ws.scenarios(), ws.rubric(), spec.version):
             click.echo(f"  [{c.step_id}] {c.text}  ({c.criterion}; {c.evidence})")
@@ -196,6 +198,7 @@ def improve(procedure_dir: Path, version: int | None, dry_run: bool, auto_approv
     if added:
         click.echo(f"recorded {len(added)} new proposal(s) from {spec.label}")
     new = improve_once(runner, spec, report, reviewer=AUTO_REVIEWER if auto_approve else None)
+    runner.close()
     if new is None:
         pending = ReviewQueue(runner.store, runner.procedure.slug).pending(spec.version)
         if pending:
@@ -229,7 +232,7 @@ def review_list(procedure_dir: Path, version: int | None, show_all: bool, runs_d
     """List proposals with their evidence."""
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
-    queue = ReviewQueue(Runner(settings, ws).store, ws.slug)
+    queue = ReviewQueue(ws.store, ws.slug)
     items = queue.all(version) if show_all else queue.pending(version)
     if not items:
         click.echo("no proposals" if show_all else "no pending proposals")
@@ -240,7 +243,7 @@ def review_list(procedure_dir: Path, version: int | None, show_all: bool, runs_d
 def _decide(procedure_dir: Path, runs_dir: Path | None, proposal_id: str, status: str, reviewer: str | None, **kw):
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
-    queue = ReviewQueue(Runner(settings, ws).store, ws.slug)
+    queue = ReviewQueue(ws.store, ws.slug)
     try:
         p = queue.decide(proposal_id, status, _reviewer(reviewer), **kw)
     except (KeyError, ValueError) as exc:
@@ -284,6 +287,32 @@ def reject(procedure_dir: Path, proposal_id: str, note: str, reviewer: str | Non
     _decide(procedure_dir, runs_dir, proposal_id, "rejected", reviewer, note=note)
 
 
+@review.command(name="propose")
+@_procedure_arg
+@click.option("--step", "step_id", required=True, help="SOP step id the rule is appended to.")
+@click.option("--text", required=True, help="The rule text, in the same grammar as a derived correction.")
+@click.option("--version", "version", type=int, default=None, help="Source version (default latest).")
+@_reviewer_opt
+@_runs_opt
+def review_propose(
+    procedure_dir: Path, step_id: str, text: str, version: int | None, reviewer: str | None, runs_dir: Path | None
+) -> None:
+    """Record a reviewer-authored rule as a pending proposal; approve it and `improve` applies it."""
+    settings = _settings(False, runs_dir)
+    ws = _workspace(procedure_dir, settings)
+    spec = ws.prompt(version)
+    try:
+        ws.procedure().step(step_id)
+    except KeyError as exc:
+        raise click.ClickException(f"unknown step {step_id}") from exc
+    who = _reviewer(reviewer)
+    correction = Correction(step_id, text.strip(), "reviewer", spec.version, evidence=f"proposed by {who}")
+    added = ReviewQueue(ws.store, ws.slug).propose([correction], spec.version)
+    if not added:
+        raise click.ClickException(f"an identical proposal already exists for {spec.label}")
+    _print_proposals(added)
+
+
 @review.command(name="report")
 @_procedure_arg
 @click.option("--version", "version", type=int, default=None, help="Source version (default every version).")
@@ -292,7 +321,7 @@ def review_report(procedure_dir: Path, version: int | None, runs_dir: Path | Non
     """Per-version review report: proposed, approved, edited, rejected, pending and applied."""
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
-    queue = ReviewQueue(Runner(settings, ws).store, ws.slug)
+    queue = ReviewQueue(ws.store, ws.slug)
     versions = [version] if version is not None else sorted({p.source_version for p in queue.all()})
     if not versions:
         click.echo("no proposals recorded")
@@ -308,7 +337,7 @@ def review_audit(procedure_dir: Path, runs_dir: Path | None) -> None:
     """The audit trail: every correction decision and every promotion, oldest first."""
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
-    store = Runner(settings, ws).store
+    store = ws.store
     entries = audit_trail(ReviewQueue(store, ws.slug).all(), PromotionLog(store, ws.slug).all())
     click.echo(format_audit(ws.slug, entries))
 
@@ -341,10 +370,10 @@ def promote(procedure_dir: Path, version: int | None, note: str, reviewer: str |
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
     spec = ws.prompt(version)
-    if not (ws.reports_dir / f"{spec.label}.json").exists():
+    if spec.version not in ws.report_versions():
         raise click.ClickException(f"no report for {spec.label}; run `playbook eval` first")
-    report = VersionReport.load(ws.reports_dir, spec.version)
-    store = Runner(settings, ws).store
+    report = ws.report(spec.version)
+    store = ws.store
     pending = ReviewQueue(store, ws.slug).pending(spec.version)
     decision = PromotionLog(store, ws.slug).decide(report, pending, _reviewer(reviewer), note=note)
     click.echo(format_promotion(decision))
@@ -388,18 +417,19 @@ def loop(
     if result.pending:
         _print_proposals(result.pending)
     _artifact(ws, "loop", runner, result.reports, stop_reason=result.stop_reason)
+    runner.close()
 
 
 def _bank(ws: Workspace, add_path: Path | None = None) -> tuple[ScenarioBank, list[str]]:
     """Load the bank, fold in the current scenario set and every stored report, and save it."""
-    bank = ScenarioBank.load(ws.bank_path, ws.slug)
+    bank = ws.bank()
     added = bank.add(ws.scenarios())
     if add_path is not None:
         added += bank.add(ScenarioSet.load(add_path), source=add_path.name)
-    for path in sorted(ws.reports_dir.glob("v*.json")):
-        stored = VersionReport.load(ws.reports_dir, int(path.stem[1:]))
+    for version in ws.report_versions():
+        stored = ws.report(version)
         bank.record(stored.prompt_version, {g.scenario_id: g.passed for g in stored.grades})
-    bank.save(ws.bank_path)
+    ws.store.save_bank(bank)
     return bank, added
 
 
@@ -445,13 +475,14 @@ def regress(
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     bank.record(spec.version, result.results)
-    bank.save(ws.bank_path)
+    ws.store.save_bank(bank)
+    runner.close()
     click.echo(format_regression(result))
     _artifact(
         ws,
         "regress",
         runner,
-        [],
+        [result.version_report(runner.rubric)],
         regression={
             "version": result.prompt_version,
             "replayed": len(result.outcomes),
@@ -476,13 +507,10 @@ def report(procedure_dir: Path, versions: str | None, inbox: bool, runs_dir: Pat
     """Print the before/after table for stored reports."""
     settings = _settings(False, runs_dir)
     ws = _workspace(procedure_dir, settings)
-    if versions:
-        wanted = [int(v) for v in versions.split(",")]
-    else:
-        wanted = sorted(int(p.stem[1:]) for p in ws.reports_dir.glob("v*.json"))
+    wanted = [int(v) for v in versions.split(",")] if versions else ws.report_versions()
     if not wanted:
         raise click.ClickException("no reports found; run `playbook eval` or `playbook loop`")
-    reports = [VersionReport.load(ws.reports_dir, v) for v in wanted]
+    reports = [ws.report(v) for v in wanted]
     click.echo(format_table(reports))
     if len(reports) > 1:
         cmp_ = compare(reports[0], reports[-1])
@@ -558,23 +586,24 @@ def synthesize(procedure_dir: Path, only_uncovered: bool, out_path: Path | None,
 @main.command(name="ops")
 @_runs_opt
 def ops_cmd(runs_dir: Path | None) -> None:
-    """Summarise the runs directory: versions, pass rates, open forbidden actions, runs and cost."""
+    """Summarise the run store: versions, pass rates, open forbidden actions, runs and cost."""
     settings = _settings(False, runs_dir)
-    click.echo(format_ops(collect_ops(settings.runs_dir, make_store(settings))))
+    click.echo(format_ops(collect_ops(make_store(settings))))
 
 
 @main.command(name="serve-fakes")
+@click.option("--host", default="127.0.0.1", show_default=True, help="Address to bind (0.0.0.0 inside a container).")
 @click.option("--model-port", type=int, default=FAKE_MODEL_PORT, show_default=True)
 @click.option("--jira-port", type=int, default=FAKE_JIRA_PORT, show_default=True)
 @click.option("--slack-port", type=int, default=FAKE_SLACK_PORT, show_default=True)
-def serve_fakes(model_port: int, jira_port: int, slack_port: int) -> None:
+def serve_fakes(host: str, model_port: int, jira_port: int, slack_port: int) -> None:
     """Serve the offline Messages API, Jira and Slack stand-ins until interrupted."""
     from fakes import jira_server, model_server, slack_server
 
     servers = [
-        model_server.serve(model_port),
-        jira_server.serve(jira_port),
-        slack_server.serve(slack_port),
+        model_server.serve(model_port, host),
+        jira_server.serve(jira_port, host),
+        slack_server.serve(slack_port, host),
     ]
     for name, s in zip(("model", "jira", "slack"), servers, strict=True):
         click.echo(f"fake {name}: {s.url}")

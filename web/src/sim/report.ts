@@ -53,12 +53,16 @@ export function compareReports(before: VersionReport, after: VersionReport): Com
   };
 }
 
-/** Python's `f"{x:.1f}"`: round half to even on exact ties, so 56.25 prints as 56.2. */
+/** Python's `f"{x:.1f}"`: round the double itself, half to even only on an exact tie.
+ *
+ * A double is an exact tie at one decimal only when it is an odd multiple of 0.25, so the test is
+ * on the value rather than on a tolerance: 12.35 is not representable, and the double nearest it
+ * sits below the tie, which is why Python prints 12.3 for it and not 12.4.
+ */
 function fixed1(v: number): string {
-  const scaled = v * 10;
-  const floor = Math.floor(scaled);
-  const diff = scaled - floor;
-  if (Math.abs(diff - 0.5) < 1e-9) {
+  const quarters = v * 4;
+  if (Number.isInteger(quarters) && quarters % 2 !== 0) {
+    const floor = Math.floor(v * 10);
     const even = floor % 2 === 0 ? floor : floor + 1;
     return (even / 10).toFixed(1);
   }

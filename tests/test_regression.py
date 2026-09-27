@@ -1,8 +1,10 @@
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
 
 from playbook.agent.prompt import Correction
+from playbook.agent.store import LocalRunStore
 from playbook.cli import main
 from playbook.config import Settings
 from playbook.evals.bank import ScenarioBank, format_bank
@@ -106,12 +108,13 @@ def test_bank_merges_sets_and_keeps_history(settings: Settings, triage_dir: Path
     assert [e.id for e in bank.select(failures_only=True)] == [e.id for e in bank.entries if e.id not in ("triage-10",)]
     assert [e.id for e in bank.by_tag("probe")] == ["triage-probe"]
 
-    path = bank.save(tmp_path / "bank.json")
-    again = ScenarioBank.load(path, ws.slug)
+    store = LocalRunStore(tmp_path)
+    assert store.save_bank(bank) == str(tmp_path / ws.slug / "bank.json")
+    again = store.load_bank(ws.slug)
     assert again.get("triage-10").outcomes == {1: True}
     assert again.get("triage-probe").added_from == "probe.yaml"
     assert len(again.entries) == 17
-    assert ScenarioBank.load(tmp_path / "missing.json", ws.slug).entries == []
+    assert store.load_bank("never-banked").entries == []
 
     text = format_bank(bank)
     assert "17 scenario(s)" in text and "historical failures: triage-01" in text
@@ -126,8 +129,21 @@ def test_cli_regress_fails_the_run_on_a_regression(settings: Settings, triage_di
     cli = CliRunner()
     assert cli.invoke(main, ["eval", str(triage_dir), *where]).exit_code == 0
 
+    # A reviewer proposes the bad rule; approving it and running improve makes it v2.
+    propose = ["review", "propose", str(triage_dir), *where, "--step", "set-state"]
+    r = cli.invoke(main, [*propose, "--text", BAD.text, "--as", "dana"])
+    assert r.exit_code == 0, r.output
+    assert "p1-" in r.output and "proposed by dana" in r.output
+    r = cli.invoke(main, ["review", "propose", str(triage_dir), *where, "--step", "nowhere", "--text", "x"])
+    assert r.exit_code != 0 and "unknown step nowhere" in r.output
+    listed = cli.invoke(main, ["review", "list", str(triage_dir), *where]).output
+    proposal_id = next(line.split()[0] for line in listed.splitlines() if BAD.text in line)
+    assert cli.invoke(main, ["review", "approve", str(triage_dir), *where, proposal_id, "--as", "dana"]).exit_code == 0
+    r = cli.invoke(main, ["improve", str(triage_dir), *where])
+    assert r.exit_code == 0, r.output
+    assert "created v2 with 1 approved correction(s)" in r.output and BAD.text in r.output
     ws = Workspace(triage_dir, runs)
-    ws.prompt(1).with_corrections([BAD], notes="deliberate regression").save(ws.prompts_dir)
+    assert [c.text for c in ws.prompt(2).corrections] == [BAD.text]
 
     r = cli.invoke(main, ["bank", str(triage_dir), *where])
     assert r.exit_code == 0, r.output
@@ -137,3 +153,7 @@ def test_cli_regress_fails_the_run_on_a_regression(settings: Settings, triage_di
     assert r.exit_code == 1
     assert "GUARD FAILED" in r.output and "broken: triage-10" in r.output
     assert "sev3              " in r.output
+    artifact = json.loads(next((runs / "support-triage" / "artifacts").glob("regress-*.json")).read_text())
+    assert artifact["regression"]["guard_passed"] is False and artifact["regression"]["broken"] == ["triage-10"]
+    assert [v["version"] for v in artifact["versions"]] == [2]
+    assert artifact["versions"][0]["scenarios"] == 4 and "triage-10" in artifact["versions"][0]["failing"]
