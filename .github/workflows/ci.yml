@@ -65,3 +65,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run selfcheck
       - run: npm run build
+      # The smoke test serves dist/ and drives it in the Google Chrome the runner image ships, so
+      # no browser download is needed. It rewrites web/docs/*.png, which the job does not keep.
+      - run: npm run smoke
