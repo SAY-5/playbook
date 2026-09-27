@@ -1,12 +1,13 @@
-# Multi-stage build: dependencies resolved with uv in the builder, runtime runs as a non-root user.
+# Multi-stage build: dependencies installed from uv.lock in the builder, runtime runs as a non-root
+# user. The uv image is pinned to the release that wrote the lock file.
 FROM python:3.12-slim AS builder
-COPY --from=ghcr.io/astral-sh/uv:0.6 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /usr/local/bin/uv
 WORKDIR /app
 ENV UV_PROJECT_ENVIRONMENT=/app/.venv UV_COMPILE_BYTECODE=1
-COPY pyproject.toml README.md ./
+COPY pyproject.toml uv.lock README.md ./
 COPY playbook ./playbook
 COPY fakes ./fakes
-RUN uv sync --no-dev --no-editable
+RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12-slim
 RUN useradd --system --create-home --uid 10001 playbook
