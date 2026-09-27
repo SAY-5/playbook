@@ -41,9 +41,3 @@ export const FIXTURES: ProcedureFixture[] = [
     kb: [],
   },
 ];
-
-export function fixture(dir: string): ProcedureFixture {
-  const f = FIXTURES.find((x) => x.dir === dir);
-  if (!f) throw new Error(`unknown procedure ${dir}`);
-  return f;
-}

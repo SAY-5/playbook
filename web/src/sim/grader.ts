@@ -206,7 +206,3 @@ export function gradeRun(rubric: Rubric, trace: RunTrace, scenario: Scenario): R
     requiredActionsTotal: required.length,
   };
 }
-
-export function failedResults(grade: RunGrade): CriterionResult[] {
-  return grade.results.filter((r) => !r.passed);
-}

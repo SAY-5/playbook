@@ -1,68 +1,6 @@
 /* Port of playbook/agent/tools.py plus fakes/jira_server.py and fakes/slack_server.py.
-   The six tool schemas, the keyword knowledge base, and in-memory Jira and Slack stand-ins with
-   inspectable inboxes. */
+   The keyword knowledge base and in-memory Jira and Slack stand-ins with inspectable inboxes. */
 import type { JiraEvent, JiraIssue, JsonObject, KbArticle, SlackChannel, SlackMessage } from "./types";
-
-export interface ToolSchema {
-  name: string;
-  description: string;
-  inputSchema: { type: "object"; properties: Record<string, unknown>; required: string[] };
-}
-
-export const TOOL_SCHEMAS: ToolSchema[] = [
-  {
-    name: "kb_search",
-    description: "Search the internal knowledge base for known issues matching a query.",
-    inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-  },
-  {
-    name: "jira_create_issue",
-    description: "Create a Jira issue. Returns the new issue key.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        project: { type: "string" },
-        summary: { type: "string" },
-        description: { type: "string" },
-        issue_type: { type: "string", enum: ["Bug", "Task", "Incident"] },
-        priority: { type: "string", enum: ["Highest", "High", "Medium", "Low", "Lowest"] },
-      },
-      required: ["project", "summary", "priority"],
-    },
-  },
-  {
-    name: "jira_transition",
-    description: "Move a Jira issue to a new status by name.",
-    inputSchema: {
-      type: "object",
-      properties: { issue_key: { type: "string" }, status: { type: "string" } },
-      required: ["issue_key", "status"],
-    },
-  },
-  {
-    name: "jira_comment",
-    description: "Add a comment to a Jira issue.",
-    inputSchema: {
-      type: "object",
-      properties: { issue_key: { type: "string" }, body: { type: "string" } },
-      required: ["issue_key", "body"],
-    },
-  },
-  {
-    name: "slack_post",
-    description: "Post a message to a Slack channel (for example #support-escalations).",
-    inputSchema: {
-      type: "object",
-      properties: { channel: { type: "string" }, text: { type: "string" } },
-      required: ["channel", "text"],
-    },
-  },
-  {
-    name: "slack_lookup_channel",
-    description: "Find the Slack channel that owns a service or topic.",
-    inputSchema: { type: "object", properties: { service: { type: "string" } }, required: ["service"] },
-  },
-];
 
 export const DOTTED_TO_API: Record<string, string> = {
   "kb.search": "kb_search",
