@@ -152,10 +152,14 @@ data "archive_file" "runner" {
   output_path = "${path.module}/.build/runner.zip"
 }
 
+# The architecture is declared rather than left to the AWS default, because `make lambda-zip`
+# resolves the wheels for it: were the default to change, the function would be given a bundle it
+# cannot load. Change both together.
 resource "aws_lambda_function" "runner" {
   function_name    = "${local.name}-runner"
   role             = aws_iam_role.runner.arn
   runtime          = "python3.12"
+  architectures    = ["x86_64"]
   handler          = "handler.handler"
   filename         = data.archive_file.runner.output_path
   source_code_hash = data.archive_file.runner.output_base64sha256

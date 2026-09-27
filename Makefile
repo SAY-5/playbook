@@ -3,8 +3,9 @@ RUNS ?= runs
 TF_DIR := deploy/terraform
 COMPOSE := docker compose -f deploy/docker-compose.yml
 LOCALSTACK_PORT ?= 4566
-# The Lambda runtime in deploy/terraform is python3.12 on x86_64; the bundle is resolved for that
-# platform whatever the host is (aarch64-manylinux2014 with architectures = ["arm64"] also works).
+# The Lambda runtime in deploy/terraform is python3.12 and the function declares
+# architectures = ["x86_64"]; the bundle is resolved for that platform whatever the host is
+# (aarch64-manylinux2014 with architectures = ["arm64"] also works, changed in both places).
 LAMBDA_PLATFORM ?= x86_64-manylinux2014
 LAMBDA_IMAGE ?= python:3.12-slim
 export LOCALSTACK_PORT
