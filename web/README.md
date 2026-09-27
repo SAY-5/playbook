@@ -72,9 +72,13 @@ recompressed losslessly, so running the test again leaves a diff of the same pic
 
 ## Fonts
 
-`public/fonts` holds Clash Display 500, 600 and 700 (Indian Type Foundry, distributed by
-Fontshare under the ITF Free Font License) and the latin subset of JetBrains Mono 400, 500 and
-600 (SIL Open Font License 1.1; the license text is in `public/fonts/OFL-JetBrainsMono.txt`).
+`public/fonts` holds the latin subset of Space Grotesk as a single variable face (weight axis 300
+to 700, the display face) and the latin subset of JetBrains Mono 400, 500 and 600. Both are under
+the SIL Open Font License 1.1 and each ships the license text next to the files, in
+`public/fonts/OFL-SpaceGrotesk.txt` and `public/fonts/OFL-JetBrainsMono.txt`. A font whose license
+does not allow redistribution cannot be committed here, however freely it may be used on a site:
+it would have to be loaded from the vendor, which the page's no-cross-origin-request guarantee
+rules out.
 
 ## Continuous integration
 
