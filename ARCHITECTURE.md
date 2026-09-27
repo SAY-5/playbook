@@ -35,9 +35,16 @@ sop.md + walkthrough.md
 ```
 
 `walkthrough.md` is a transcript with `[mm:ss] Speaker: text` lines. Only `Expert:` lines are
-used. Each sentence that carries a conditional (`if`, `when`, `unless`, `otherwise`, `exception`,
-`always`, `must`) becomes a `DecisionPoint`; sentences with `never`, `do not` or `must not` become
-prohibitions. Each decision is linked to the SOP step with the largest keyword overlap.
+used. A sentence becomes a `DecisionPoint` when it carries a conditional (`if`, `when`, `unless`,
+`otherwise`, `exception`, `always`, `must`) or states a priority matrix, which is the pattern
+`<word> is <Highest|High|Medium|Low|Lowest>`; sentences with `never`, `do not` or `must not`
+become prohibitions. Narrative that carries neither is dropped.
+
+A decision is linked to a step in this order: the step whose own text names a Slack channel the
+sentence names, then, for a priority matrix, the step that sets the priority, then, for a sentence
+about posting or paging, the first step whose tool is `slack.post`, and only then the step with the
+largest keyword overlap. Channel and tool before keywords is what keeps `If it is a full outage,
+page the incident commander in #ic-oncall` on the step that posts to that channel.
 
 Everything carries a `Citation(source, line)`. The result is a `Procedure`:
 
@@ -48,7 +55,8 @@ Everything carries a `Citation(source, line)`. The result is a `Procedure`:
 | `preconditions`, `escalation_rules`, `forbidden`, `checks` | `Rule(text, citation)` lists |
 | `sources` | file names used |
 
-`playbook ingest` writes it as `runs/<procedure>/procedure.json`.
+`playbook ingest` writes it as `<runs-dir>/<slug>/procedure.json`, where `<slug>` is the
+procedure's slug, the one key every stored artifact hangs off.
 
 ## Prompt spec
 
@@ -61,7 +69,7 @@ prohibitions.
 
 A `Correction(step_id, text, criterion, version, evidence)` is an explicit rule appended under one
 step. `with_corrections()` creates version N+1 keeping all earlier corrections and dropping
-duplicates. Versions are saved as `runs/<procedure>/prompts/vN.json`.
+duplicates. Versions are saved through the run store as `<slug>/prompts/vN.json`.
 
 ## Tool loop
 
@@ -75,8 +83,10 @@ rather than raising. Tool failures are recorded in the trace and returned to the
 
 `RunTrace` holds the system prompt, intake message, every `ModelTurn` (stop reason, text, tool
 uses, token usage) and every `ToolCall` (args, result, error, duration). The store writes it under
-`runs/<procedure>/vN/<scenario>.json` on disk, or to the S3 bucket with a DynamoDB index item
-`(pk=procedure, sk=vN#scenario)` when `PLAYBOOK_RUN_STORE=s3`.
+`<slug>/traces/vN/<scenario>.json` on disk, or under the same key in the S3 bucket with a
+DynamoDB index item `(pk=procedure, sk=vN#scenario)` when `PLAYBOOK_RUN_STORE=s3`. The grade of
+each run is stored next to it as `<slug>/grades/vN/<scenario>.json` and its score and verdict go
+on the index item.
 
 ## Offline mode
 
@@ -155,7 +165,7 @@ round limit is hit. Every version and report stays on disk.
 
 ## Scenario bank and regression
 
-`runs/<procedure>/bank.json` holds one entry per scenario: the scenario itself, where it came from,
+`<slug>/bank.json` in the run store holds one entry per scenario: the scenario itself, where it came from,
 and `outcomes`, a map from prompt version to pass or fail. `playbook bank` and `playbook regress`
 refresh it from `scenarios.yaml` and every stored report before doing anything else, so a scenario
 dropped from the set keeps its history and stays in the replay.
@@ -169,7 +179,7 @@ once per tag a scenario carries.
 ## Review and promotion
 
 `derive_corrections` produces `Correction`s; `ReviewQueue.propose` turns the ones not seen before
-into `Proposal` records under `proposals/<slug>/<id>.json` in the run store, keyed `p<source
+into `Proposal` records under `<slug>/proposals/<id>.json` in the run store, keyed `p<source
 version>-<NN>`. A decision sets `status`, `reviewer`, `note`, `decided_at` and, for an edit,
 `applied_text`; `final_text` is what reaches the prompt. `improve_once` applies only approved,
 unapplied proposals and stamps `applied_in` on them, so a proposal enters exactly one version.
@@ -182,20 +192,20 @@ position differ. Passing `after_proc` diffs across a re-ingested SOP.
 
 `playbook.feedback.approval` gates promotion. `gate` returns one blocker per forbidden criterion
 that failed in the graded report (with the scenarios) and one for undecided proposals from that
-version. `PromotionLog.decide` always writes a record under `promotions/<slug>/d<version>-<NN>.json`
+version. `PromotionLog.decide` always writes a record under `<slug>/promotions/d<version>-<NN>.json`
 with the reviewer, the blockers and the pass rate, so a refusal is as auditable as a sign-off, and
 `audit_trail` merges proposal decisions and promotions into one chronological list.
 
 ## Operations
 
-`playbook.ops` reads the runs directory rather than any live state. For each procedure directory
-holding at least one prompt version it takes the versions from `prompts/`, the pass rate history
-and open forbidden actions from `reports/`, the promoted version and pending proposals from the
-store records, and the runs from the store. Metrics come from the traces: per-tool call counts,
+`playbook.ops` reads the run store rather than any live state, so it answers the same questions
+against a local directory and against S3. For each procedure the store lists, it takes the
+versions from `prompts/`, the pass rate history and open forbidden actions from `reports/`, the
+promoted version and pending proposals from the store records, and the runs from the traces. Metrics come from the traces: per-tool call counts,
 calls per run, tool latency as mean, p95 and max, and run wall time from `RunTrace.duration_ms`,
 which the tool loop measures with a monotonic clock.
 
-`write_run_artifact` writes one JSON file per command run under `runs/<procedure>/artifacts/`,
+`write_run_artifact` writes one JSON file per command run under `<runs-dir>/<slug>/artifacts/`,
 named `<command>-<UTC timestamp>`. It holds the version scores with their failing scenarios, the
 metrics of the traces that command produced, and whatever the command adds: the loop's stop reason,
 the regression run's guard verdict and per-tag rates.
@@ -205,5 +215,9 @@ the regression run's guard verdict and per-tag rates.
 `deploy/terraform` creates the artifact bucket (versioned, encrypted, private), the run queue with
 a dead-letter queue, the DynamoDB run index, a Secrets Manager secret for the API keys, and a
 Lambda runner subscribed to the queue. `deploy/lambda/handler.py` runs one scenario per SQS
-message with `Settings.from_env(live=True)` after loading the secret into the environment. With
-`-var-file=localstack.tfvars` the same configuration applies against LocalStack.
+message with `Settings.from_env(live=True)` after loading the secret into the environment. The
+message names the procedure and the scenario; `prompt_version` is optional and defaults to the
+version the promotion log says is current, and a procedure with nothing promoted is refused. The
+handler loads that version from the run store, so the versions the loop produced locally are the
+ones the deployed runner can serve. With `-var-file=localstack.tfvars` the same configuration
+applies against LocalStack.
