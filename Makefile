@@ -9,7 +9,7 @@ LAMBDA_PLATFORM ?= x86_64-manylinux2014
 LAMBDA_IMAGE ?= python:3.12-slim
 export LOCALSTACK_PORT
 
-.PHONY: setup lint test tf-validate demo stack-up stack-down tf-apply-local tf-destroy-local lambda-zip lambda-check clean
+.PHONY: setup lint test tf-validate demo demo-review stack-up stack-down tf-apply-local tf-destroy-local lambda-zip lambda-check clean
 
 setup:
 	$(UV) sync --python 3.12 --extra dev
@@ -28,6 +28,9 @@ tf-validate:
 
 demo:
 	RUNS=$(RUNS) scripts/demo.sh
+
+demo-review:
+	RUNS=$(RUNS) scripts/demo-review.sh
 
 stack-up:
 	$(COMPOSE) up -d localstack
