@@ -458,6 +458,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for schemas and the offline grammar, and
 
 | version | date | what shipped |
 |---|---|---|
+| [v6.0.0](https://github.com/SAY-5/playbook/releases/tag/v6.0.0) | 2026-09-27 | every artifact stored by procedure slug on disk and in S3, promoted-version Lambda runs, live-mode credential checks |
 | [v5.0.0](https://github.com/SAY-5/playbook/releases/tag/v5.0.0) | 2026-09-10 | ops summary, per-run JSON artifacts, tool-call and latency metrics |
 | [v4.0.0](https://github.com/SAY-5/playbook/releases/tag/v4.0.0) | 2026-09-10 | tagged scenario bank, regression replay, previously-passing guard |
 | [v3.0.0](https://github.com/SAY-5/playbook/releases/tag/v3.0.0) | 2026-09-10 | review queue, version diff, promotion gate, audit trail |
