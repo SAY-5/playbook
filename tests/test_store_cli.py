@@ -210,6 +210,16 @@ def test_cli_diff_promote_and_audit(settings: Settings, triage_dir: Path, tmp_pa
     cli = CliRunner()
     r = cli.invoke(main, ["loop", str(triage_dir), *where, "--max-rounds", "4"])
     assert r.exit_code == 0, r.output
+    assert sorted(p.name for p in (runs / SLUG).iterdir()) == [
+        "artifacts",
+        "grades",
+        "procedure.json",
+        "prompts",
+        "proposals",
+        "reports",
+        "traces",
+    ]
+    assert sorted(p.name for p in (runs / SLUG / "traces").iterdir()) == ["v1", "v2", "v3"]
 
     r = cli.invoke(main, ["diff", str(triage_dir), *where, "--from", "1", "--to", "2"])
     assert r.exit_code == 0, r.output
@@ -228,9 +238,29 @@ def test_cli_diff_promote_and_audit(settings: Settings, triage_dir: Path, tmp_pa
     assert r.exit_code == 0, r.output
     assert "audit trail" in r.output and "blocked   v1" in r.output and "promoted  v3" in r.output
     assert r.output.count(" approved  p") >= 10
+    assert sorted(p.name for p in (runs / SLUG / "promotions").iterdir()) == ["d1-01.json", "d3-01.json"]
 
 
-def test_live_requires_api_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def test_live_settings_require_the_key_and_real_tool_credentials(monkeypatch):
+    for name in ("ANTHROPIC_API_KEY", "JIRA_BASE_URL", "JIRA_TOKEN", "SLACK_TOKEN", "PLAYBOOK_TOOLS"):
+        monkeypatch.delenv(name, raising=False)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         Settings.from_env(live=True)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    with pytest.raises(RuntimeError, match="JIRA_BASE_URL, JIRA_TOKEN, SLACK_TOKEN"):
+        Settings.from_env(live=True)
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example.com")
+    monkeypatch.setenv("JIRA_TOKEN", "j")
+    with pytest.raises(RuntimeError, match=r"requires SLACK_TOKEN \("):
+        Settings.from_env(live=True)
+    monkeypatch.setenv("SLACK_TOKEN", "s")
+    real = Settings.from_env(live=True)
+    assert real.tools == "real"
+    assert (real.jira_base_url, real.slack_base_url) == ("https://jira.example.com", "https://slack.com")
+
+    monkeypatch.delenv("JIRA_BASE_URL")
+    monkeypatch.setenv("PLAYBOOK_TOOLS", "fake")
+    monkeypatch.setenv("PLAYBOOK_FAKE_JIRA_URL", "http://127.0.0.1:9902")
+    fake = Settings.from_env(live=True)
+    assert fake.live and fake.tools == "fake"
+    assert (fake.jira_base_url, fake.jira_token, fake.slack_token) == ("http://127.0.0.1:9902", "offline", "offline")
