@@ -1,5 +1,18 @@
 # Changelog
 
+## v6.0.1 (2026-10-25)
+
+Dependency refresh past published advisories; the code is unchanged.
+
+- `uv.lock`: certifi 2026.7.22 to 2026.10.19 (GHSA-6q48-6c7w-9gw2) and urllib3 2.7.0 to 2.8.0
+  (GHSA-8988-9cw3-xx77, GHSA-gh4c-6fx4-qh6g, GHSA-vxq7-64xx-v4gw). Both ship in the image and the
+  Lambda bundle: certifi through httpx, which the Messages API client and the Jira and Slack tools
+  use, and urllib3 through boto3 and botocore.
+- `web/`: Vite 7.3.6 to 7.3.7 (GHSA-587h-7wmj-h5pm, GHSA-698v-4r3x-3vcv, GHSA-9jrq-w75r-8gcw,
+  GHSA-r825-w8mm-5pxw, GHSA-rq7h-c2jc-7f22), whose advisories concern the development server rather
+  than the built page, and source-map-js 1.2.1 to 1.2.2 (GHSA-68fv-2mgg-jv7q), which only the
+  bundler loads. Nothing else in either lockfile moved.
+
 ## v6.0.0 (2026-09-27)
 
 Breaking: the run store lays every artifact out under one root keyed by the procedure slug
